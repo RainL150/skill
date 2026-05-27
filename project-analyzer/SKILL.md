@@ -9,15 +9,38 @@ triggers:
   - "帮我理解这个代码库"
   - "analyze this project"
   - "break down this repo"
+  - "project-analyzer modules"
+  - "模块拆解"
+  - "拆解模块"
+  - "project-analyzer setup"
+  - "启动指南"
+  - "怎么跑起来"
 origin: local
 tools: Read, Glob, Grep, Bash, Task, WebFetch
 ---
 
-# Project Analyzer
+# Project Analyzer v6
 
 深度拆解开源项目：能力清单 + 核心机制 + 设计权衡 + 使用陷阱 + 成熟度评分。
 
 > **核心理念**：不是"这个项目有哪些文件"，而是"这个项目能帮我做什么"+"它是怎么做到的"+"我能信任它吗"。
+
+## 三个触发命令
+
+| 命令 | 输出 | 目的 |
+|------|------|------|
+| `/project-analyzer` | 分析报告 | 项目是什么、值不值得用 |
+| `/project-analyzer modules` | 模块拆解 | 理解实现流程和原理 |
+| `/project-analyzer setup` | 启动指南 | 把项目跑起来 |
+
+**路由逻辑：**
+- 如果用户输入包含 `modules` 或 `模块拆解` → 输出模块拆解文档
+- 如果用户输入包含 `setup` 或 `启动指南` 或 `怎么跑起来` → 输出启动指南
+- 否则 → 输出分析报告（默认）
+
+---
+
+# 文档 1：分析报告 (`/project-analyzer`)
 
 ## When to Activate
 
@@ -29,10 +52,10 @@ tools: Read, Glob, Grep, Bash, Task, WebFetch
 - 为团队产出技术分享材料
 
 **不适用：**
-- 快速上手指南 → 用 `codebase-onboarding`
+- 快速上手指南 → 用 `/project-analyzer setup`
+- 深入理解实现 → 用 `/project-analyzer modules`
 - 代码审查 → 用 `code-review`
 - 安全审计 → 用 `security-review`
-- 生产就绪检查 → 用 `production-audit`
 
 ## 输出格式：一句话先行
 
@@ -48,8 +71,6 @@ tools: Read, Glob, Grep, Bash, Task, WebFetch
 ```
 
 ## 成熟度评分系统
-
-借鉴 `production-audit` 的评分模型，对项目成熟度进行量化：
 
 ### 评分维度
 
@@ -72,8 +93,6 @@ tools: Read, Glob, Grep, Bash, Task, WebFetch
 | **优秀** | 85-100 | 设计优秀、文档完善、社区活跃 |
 
 ### 强制降分规则
-
-以下情况强制 cap 评分：
 
 | 条件 | Cap 到 |
 |------|--------|
@@ -147,22 +166,6 @@ git log --oneline -10 2>/dev/null || echo "No git history"
 2. [价值点 2]（推断自: [线索]）
 ```
 
-**通俗解释示例（filetree-skill）：**
-
-```markdown
-### 通俗解释（问题-方案-类比）
-
-**问题**
-每次开新的 Claude Code 会话，AI 都要重新"探索"你的项目：ls 看看有啥、grep 找找入口、读文件看干嘛的...浪费 token，浪费时间，每次都重来。
-
-**方案**
-生成一个 FILETREE.md 索引文件，记录每个文件的一句话描述。下次会话，AI 读一次这个文件就知道整个项目结构了。
-
-**类比**
-- **没有它**：每次去新公司上班，都要自己挨个办公室敲门问"你是干嘛的"
-- **有了它**：门口贴了一张组织架构图，一眼看完
-```
-
 ### Phase 2: 能力清单 (5-10 分钟)
 
 **检测方法：**
@@ -200,7 +203,7 @@ rg -A 20 "## Features|## 功能|## Capabilities" README.md
 
 ### Phase 3: 核心机制 (10-15 分钟)
 
-**输出格式：**
+**输出格式（含 Mermaid 图）：**
 
 ```markdown
 ## 核心机制
@@ -214,8 +217,12 @@ rg -A 20 "## Features|## 功能|## Capabilities" README.md
 [2-3 句话核心思路]
 
 #### 工作流程
-```
-[流程图]
+```mermaid
+flowchart LR
+    A[输入] --> B{判断}
+    B -->|是| C[处理]
+    B -->|否| D[跳过]
+    C --> E[输出]
 ```
 
 #### 分步详解
@@ -242,8 +249,18 @@ rg -A 20 "## Features|## 功能|## Capabilities" README.md
 
 ### 流程: [功能名称]
 
-```
-[ASCII 流程图，标注文件位置]
+```mermaid
+sequenceDiagram
+    participant Client
+    participant API
+    participant Service
+    participant DB
+    Client->>API: 请求
+    API->>Service: 调用
+    Service->>DB: 查询
+    DB-->>Service: 数据
+    Service-->>API: 结果
+    API-->>Client: 响应
 ```
 
 ### 关键节点
@@ -269,8 +286,6 @@ rg -A 20 "## Features|## 功能|## Capabilities" README.md
 ```
 
 ### Phase 6: 设计决策 (ADR 格式) (5-10 分钟)
-
-**借鉴 `architecture-decision-records` skill 的格式：**
 
 ```markdown
 ## 设计决策
@@ -317,38 +332,7 @@ rg -A 20 "## Features|## 功能|## Capabilities" README.md
 | 1 | [症状] | [原因] | [命令] |
 ```
 
-### Phase 8: 证据清单 (借鉴 production-audit)
-
-**这是最重要的改进之一——让分析覆盖范围透明化：**
-
-```markdown
-## 证据清单
-
-### Evidence Checked ✅
-
-| 类别 | 检查项 | 文件/来源 |
-|------|--------|-----------|
-| 文档 | README.md | ✅ 已读 |
-| 文档 | API 文档 | ✅ 已读 |
-| 代码 | 核心模块 | ✅ `src/core/` |
-| 代码 | 测试文件 | ✅ `tests/` |
-| 社区 | GitHub Issues | ✅ 已查看 |
-| 社区 | Stars/Forks | ✅ [数量] |
-
-### Evidence Missing ❓
-
-| 缺失证据 | 影响 | 如果有会改变什么 |
-|----------|------|------------------|
-| 性能基准测试 | 无法评估性能 | 可能调整性能相关结论 |
-| 生产使用案例 | 无法确认生产可用性 | 可能调整成熟度评分 |
-
-### 分析局限性
-
-- [局限 1]
-- [局限 2]
-```
-
-### Phase 9: 学习路径 (3 分钟)
+### Phase 8: 学习路径 (3 分钟)
 
 ```markdown
 ## 学习路径
@@ -366,12 +350,92 @@ rg -A 20 "## Features|## 功能|## Capabilities" README.md
 [一个具体的下一步行动建议]
 ```
 
+## 架构图生成规则
+
+### 模块检测启发式
+
+```
+# 层级分配规则 (按文件夹名称)
+Entry 层: cli/, cmd/, bin/, api/, routes/, pages/, app/
+Core 层: core/, domain/, services/, lib/, modules/
+Infra 层: db/, database/, cache/, queue/, storage/, infra/
+Utils 层: utils/, helpers/, common/, shared/
+
+# 如果文件夹不匹配，按深度分配
+深度 1 (src/xxx.ts): Entry 层
+深度 2 (src/xxx/yyy.ts): Core 层
+深度 3+ (src/xxx/yyy/zzz.ts): Infra 或 Utils 层
+```
+
+### 图规模控制
+
+- 模块 ≤ 30: 完整图
+- 模块 31-50: 只显示核心模块 + 直接依赖
+- 模块 > 50: 只显示层级概览图（不显示具体文件）
+
+### 架构图模板
+
+```mermaid
+graph TD
+    subgraph Entry["入口层"]
+        CLI[cli/index.ts]
+        API[api/router.ts]
+    end
+    subgraph Core["核心层"]
+        Engine[core/engine.ts]
+        Services[services/]
+    end
+    subgraph Infra["基础设施层"]
+        DB[db/client.ts]
+        Cache[cache/redis.ts]
+    end
+    CLI --> Engine
+    API --> Engine
+    Engine --> DB
+    Engine --> Cache
+```
+
+## Hot Spot Detection (内部算法)
+
+在分析时用于识别关键文件，优先深入分析。
+
+### 评分公式
+
+```
+inbound_norm = (file_refs / max_refs_in_project) × 100
+churn_norm = (file_edits / max_edits_in_project) × 100
+name_norm = 100 if filename contains [core|engine|service|handler|manager|controller|router] else 0
+size_norm = 100 if 200 <= lines <= 800 else max(0, 100 - abs(lines - 500) / 5)
+
+Score = (inbound_norm × 0.4) + (churn_norm × 0.3) + (name_norm × 0.2) + (size_norm × 0.1)
+```
+
+### 检测命令
+
+```bash
+# 1. 入口点检测
+rg -l "^(export )?(async )?function main|^const app =|^export default" --type ts
+find . -name "main.*" -o -name "index.*" -o -name "cli.*" -o -name "server.*" -o -name "app.*"
+
+# 2. 引用计数 (PageRank-lite)
+rg "from ['\"]\./" --type ts | cut -d: -f2 | sort | uniq -c | sort -rn | head -20
+
+# 3. Git 热度
+git log --since="6 months ago" --name-only --pretty=format: | sort | uniq -c | sort -rn | head -20
+
+# 4. 文件大小甜区 (200-800 行)
+find . -name "*.ts" -exec wc -l {} \; | awk '$1 >= 200 && $1 <= 800 {print}' | sort -rn
+
+# 5. 名称相关性
+find . -name "*core*" -o -name "*engine*" -o -name "*service*" -o -name "*handler*" -o -name "*manager*"
+```
+
 ## 完整输出模板
 
 ```markdown
 # [项目名] 深度分析报告
 
-> 分析框架: project-analyzer v5
+> 分析框架: project-analyzer v6
 > 分析时间: [日期]
 > 分析深度: [快速/标准/深入]
 
@@ -382,6 +446,21 @@ rg -A 20 "## Features|## 功能|## Capabilities" README.md
 项目分析: [XX]/100, [评级], [核心价值], [亮点]和[风险]是需要关注的两点。
 
 ---
+
+## 架构概览
+
+```mermaid
+graph TD
+    subgraph Entry["入口层"]
+        ...
+    end
+    subgraph Core["核心层"]
+        ...
+    end
+    subgraph Infra["基础设施层"]
+        ...
+    end
+```
 
 ## 一、定位
 [一句话定位 + 通俗解释（问题-方案-类比） + 目标用户 + 核心价值]
@@ -424,58 +503,13 @@ rg -A 20 "## Features|## 功能|## Capabilities" README.md
 | **总分** | **[XX]** | **100** | [强制 cap 说明] |
 ```
 
-## 输出 Schema (JSON)
-
-```json
-{
-  "schema_version": "project-analyzer.v5",
-  "summary": {
-    "score": 82,
-    "rating": "可信赖",
-    "one_liner": "跨 AI Agent 工具的可复用工作流系统",
-    "highlight": "Hook 系统设计",
-    "risk": "学习曲线陡峭"
-  },
-  "scoring": {
-    "documentation": { "score": 12, "max": 15, "note": "..." },
-    "code_quality": { "score": 16, "max": 20, "note": "..." },
-    "community": { "score": 14, "max": 15, "note": "..." },
-    "architecture": { "score": 18, "max": 20, "note": "..." },
-    "usability": { "score": 10, "max": 15, "note": "..." },
-    "maintenance": { "score": 12, "max": 15, "note": "..." },
-    "cap_applied": null
-  },
-  "capabilities": [
-    {
-      "name": "...",
-      "description": "...",
-      "trigger": "...",
-      "evidence": "file:line"
-    }
-  ],
-  "mechanisms": [...],
-  "design_decisions": [
-    {
-      "title": "...",
-      "status": "accepted|proposed|deprecated",
-      "context": "...",
-      "decision": "...",
-      "alternatives": [...],
-      "consequences": {...}
-    }
-  ],
-  "pitfalls": [...],
-  "next_action": "..."
-}
-```
-
 ## 分析深度控制
 
 | 深度 | 耗时 | 输出内容 |
 |------|------|----------|
-| **快速** | 10-15 分钟 | 一句话总结 + 定位 + 能力清单 + 1 个机制 |
-| **标准** | 30-45 分钟 | 上述 + 数据流 + 扩展点 + 陷阱 + 证据清单 |
-| **深入** | 60-90 分钟 | 完整 9 维分析 + 所有核心机制 + ADR 格式决策 |
+| **快速** | 10-15 分钟 | 一句话总结 + 架构图 + 定位 + 能力清单 + 1 个机制 |
+| **标准** | 30-45 分钟 | 上述 + 数据流 + 扩展点 + 陷阱 |
+| **深入** | 60-90 分钟 | 完整 8 维分析 + 所有核心机制 + ADR 格式决策 |
 
 ## Anti-Patterns
 
@@ -484,13 +518,15 @@ rg -A 20 "## Features|## 功能|## Capabilities" README.md
 - ❌ **复制 README** — 分析报告必须增加结构化洞察
 - ❌ **无 Next Action** — 必须给出一个具体的下一步
 - ❌ **模糊描述** — 避免"处理数据"、"执行逻辑"等空话
+- ❌ **无架构图** — 必须包含 Mermaid 架构概览图
 
 ## 质量检查清单
 
 ### 必须包含
 - [ ] 一句话总结（评分 + 评级 + 核心价值）
+- [ ] 架构概览 Mermaid 图
 - [ ] 能力清单（至少 5 个能力）
-- [ ] 至少 1 个核心机制深入解释
+- [ ] 至少 1 个核心机制深入解释（含 Mermaid 流程图）
 - [ ] 至少 3 个使用陷阱
 - [ ] Next Action
 
@@ -499,12 +535,34 @@ rg -A 20 "## Features|## 功能|## Capabilities" README.md
 - [ ] 只有优点没有缺点
 - [ ] 模糊描述（"处理数据"、"执行逻辑"）
 
+---
+
+# 文档 2：模块拆解 (`/project-analyzer modules`)
+
+**路由触发词：** `modules`, `模块拆解`, `拆解模块`
+
+**目的：** 理解实现流程和原理
+
+详见 [MODULES.md](./MODULES.md)
+
+---
+
+# 文档 3：启动指南 (`/project-analyzer setup`)
+
+**路由触发词：** `setup`, `启动指南`, `怎么跑起来`
+
+**目的：** 把项目跑起来
+
+详见 [SETUP.md](./SETUP.md)
+
+---
+
 ## 与其他 Skill 配合
 
 | 场景 | 组合使用 |
 |------|----------|
-| 快速上手 | `project-analyzer`(快速) → `codebase-onboarding` |
-| 深度学习 | `project-analyzer`(深入) |
-| 技术选型 | `project-analyzer` × N 个项目 → 对比分析 |
-| 生产评估 | `project-analyzer` → `production-audit` |
-| 贡献代码 | `project-analyzer` → `codebase-onboarding` → `architecture-decision-records` |
+| 快速上手 | `/project-analyzer setup` → 跑起来 |
+| 理解实现 | `/project-analyzer` → `/project-analyzer modules` |
+| 技术选型 | `/project-analyzer` × N 个项目 → 对比分析 |
+| 生产评估 | `/project-analyzer` → `production-audit` |
+| 贡献代码 | `/project-analyzer modules` → 理解后开始改 |
