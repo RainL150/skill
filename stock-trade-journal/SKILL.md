@@ -1,13 +1,12 @@
 ---
 name: stock-trade-journal
-description: 按统一规则记录交易流水。支持手动记录和 IBKR API 自动同步。按个股落 Markdown，同时写入 SQLite 便于统计与量化复盘。
-when: 当用户说"记一下这笔交易""记录交易""建交易日志""同步IBKR交易""查询持仓"时使用。
+description: 交易日志系统，支持手动记录和 IBKR API 自动同步。交易表与持仓表联动，自动计算均价和盈亏。
+when: 当用户说"记一下这笔交易""记录交易""同步IBKR""查询持仓""持仓盈亏"时使用。
 examples:
-  - "记录：603067.SH 在44.1减仓2900股，剩余34000"
-  - "把这笔交易按模板记下来"
-  - "查一下振华股份最近交易流水"
+  - "记录：603067.SH 在44.1减仓2900股"
   - "同步一下 IBKR 的交易记录"
-  - "显示 IBKR 当前持仓"
+  - "查看当前持仓"
+  - "AAPL 的持仓成本是多少"
 metadata:
   {
     "openclaw": {
@@ -19,32 +18,127 @@ metadata:
 
 # stock-trade-journal
 
-## 固定存储位置
-- `results/trade-journal/records/<TS_CODE>.md`
-- `results/trade-journal/db/trades.db`
+交易日志系统，支持手动记录和 IBKR API 自动同步。**交易表与持仓表联动**，每次交易自动更新持仓、均价和已实现盈亏。
 
-## 执行规则
-1. 每次交易动作都记录（买/卖/加/减）。
-2. 同时写 Markdown + SQLite（双写）。
-3. Markdown 按个股持续追加，数据库用于后续统计计算。
+## 核心特性
+
+- ✅ **双表联动**: 交易记录表 + 持仓表自动同步
+- ✅ **均价计算**: 买入自动计算加权均价
+- ✅ **盈亏追踪**: 卖出自动计算已实现盈亏
+- ✅ **多数据源**: 手动记录 / IBKR API / CSV 导入
+- ✅ **双写存储**: SQLite + Markdown
 
 ---
 
-## 方式一：手动记录交易
+## 数据库结构
+
+### trades 表（交易记录）
+
+```sql
+CREATE TABLE trades (
+  id INTEGER PRIMARY KEY,
+  ts_code TEXT NOT NULL,        -- 股票代码
+  side TEXT NOT NULL,           -- BUY/SELL
+  price REAL NOT NULL,          -- 成交价
+  quantity INTEGER NOT NULL,    -- 数量
+  amount REAL,                  -- 金额
+  position_before INTEGER,      -- 交易前持仓
+  position_after INTEGER,       -- 交易后持仓
+  reason TEXT,                  -- 交易原因
+  stop_loss REAL,               -- 止损价
+  take_profit TEXT,             -- 止盈目标
+  note TEXT,
+  timestamp TEXT NOT NULL,
+  source TEXT DEFAULT 'manual', -- manual/ibkr/import
+  ibkr_exec_id TEXT,
+  commission REAL,
+  currency TEXT
+);
+```
+
+### positions 表（持仓）
+
+```sql
+CREATE TABLE positions (
+  id INTEGER PRIMARY KEY,
+  ts_code TEXT NOT NULL UNIQUE, -- 股票代码（唯一）
+  quantity INTEGER NOT NULL,    -- 当前持仓
+  avg_cost REAL,                -- 平均成本
+  total_cost REAL,              -- 总成本
+  market_price REAL,            -- 最新市价
+  market_value REAL,            -- 市值
+  unrealized_pnl REAL,          -- 未实现盈亏
+  realized_pnl REAL DEFAULT 0,  -- 已实现盈亏
+  currency TEXT,
+  first_buy_date TEXT,          -- 首次买入
+  last_trade_date TEXT,         -- 最后交易
+  updated_at TEXT
+);
+```
+
+### 联动逻辑
+
+| 操作 | 持仓变化 | 均价变化 | 已实现盈亏 |
+|------|----------|----------|------------|
+| **买入** | +数量 | 加权重算 | 不变 |
+| **卖出** | -数量 | 不变 | +=(卖价-均价)*数量 |
+| **清仓** | →0 | →0 | 累加最后一笔 |
+
+---
+
+## 使用方法
+
+### 1. 手动记录交易
 
 ```bash
 python3 scripts/record_trade.py \
   --workspace ~/.openclaw/workspace \
-  --ts-code 603067.SH --side SELL --price 44.1 --quantity 2900 \
-  --position-before 36900 --position-after 34000 \
-  --reason "压力位先锁利润" --stop-loss 37.2 --take-profit "45.5分批"
+  --ts-code AAPL.US \
+  --side BUY \
+  --price 150.5 \
+  --quantity 100 \
+  --reason "看好AI业务"
+```
+
+输出：
+```
+✅ 交易已记录: AAPL.US BUY 100 @ 150.5
+   金额: 15050.00 CNY
+   持仓变化: 0 -> 100
+   当前均价: 150.5000
+```
+
+### 2. 查询持仓
+
+```bash
+# 查看所有持仓
+python3 scripts/query_positions.py --workspace ~/.openclaw/workspace
+
+# 查询特定股票
+python3 scripts/query_positions.py --workspace ~/.openclaw/workspace --ts-code AAPL.US
+
+# 包含已清仓股票
+python3 scripts/query_positions.py --workspace ~/.openclaw/workspace --all
+
+# JSON 格式输出
+python3 scripts/query_positions.py --workspace ~/.openclaw/workspace --json
+```
+
+### 3. 查询交易记录
+
+```bash
+python3 scripts/query_trades.py --workspace ~/.openclaw/workspace
+
+# 查询特定股票
+python3 scripts/query_trades.py --workspace ~/.openclaw/workspace --ts-code AAPL.US
+
+# 最近 N 条
+python3 scripts/query_trades.py --workspace ~/.openclaw/workspace --limit 20
 ```
 
 ---
 
-## 方式二：IBKR API 自动同步 (新增)
-
-从 Interactive Brokers (盈透证券) 自动同步交易记录。
+## IBKR API 同步
 
 ### 前置条件
 
@@ -53,110 +147,98 @@ python3 scripts/record_trade.py \
    pip install ib_insync
    ```
 
-2. **运行 TWS 或 IB Gateway**
-   - 下载: https://www.interactivebrokers.com/en/trading/tws.php
+2. **启动 TWS 或 IB Gateway**
    - 启用 API: Edit > Global Configuration > API > Settings
    - 勾选 "Enable ActiveX and Socket Clients"
 
-3. **端口说明**
+3. **端口**
    | 模式 | 端口 |
    |------|------|
-   | TWS Paper Trading | 7497 |
-   | TWS Live Trading | 7496 |
-   | IB Gateway Paper | 4002 |
-   | IB Gateway Live | 4001 |
+   | TWS Paper | 7497 |
+   | TWS Live | 7496 |
+   | Gateway Paper | 4002 |
+   | Gateway Live | 4001 |
 
-### 同步交易记录
-
-```bash
-# 同步最近 7 天的交易 (Paper Trading)
-python3 scripts/sync_ibkr.py \
-  --workspace ~/.openclaw/workspace \
-  --port 7497
-
-# 同步 Live Trading
-python3 scripts/sync_ibkr.py \
-  --workspace ~/.openclaw/workspace \
-  --port 7496
-
-# 同步最近 30 天
-python3 scripts/sync_ibkr.py \
-  --workspace ~/.openclaw/workspace \
-  --days 30
-```
-
-### 查看持仓
+### 同步命令
 
 ```bash
+# 同步交易记录 + 更新持仓
 python3 scripts/sync_ibkr.py \
   --workspace ~/.openclaw/workspace \
+  --port 4001
+
+# 同步 IBKR 持仓到本地
+python3 scripts/sync_ibkr.py \
+  --workspace ~/.openclaw/workspace \
+  --port 4001 \
+  --sync-positions
+
+# 只查看 IBKR 持仓（不写入）
+python3 scripts/sync_ibkr.py \
+  --workspace ~/.openclaw/workspace \
+  --port 4001 \
   --positions --readonly
+
+# 查看本地数据库持仓
+python3 scripts/sync_ibkr.py \
+  --workspace ~/.openclaw/workspace \
+  --local
 ```
 
-### 完整参数
+### 参数说明
 
 | 参数 | 说明 | 默认值 |
 |------|------|--------|
 | `--workspace` | 工作目录 | (必填) |
-| `--host` | TWS/Gateway 主机 | 127.0.0.1 |
 | `--port` | TWS/Gateway 端口 | 7497 |
-| `--client-id` | 客户端 ID | 1 |
 | `--days` | 同步最近 N 天 | 7 |
-| `--positions` | 显示当前持仓 | - |
-| `--readonly` | 只读模式，不写入 | - |
-
-### 代码转换规则
-
-| IBKR 交易所 | 转换结果 |
-|-------------|----------|
-| SMART/NASDAQ/NYSE | AAPL → AAPL.US |
-| SEHK | 700 → 0700.HK |
-| SEHKNTL/SEHKSZSE | 600519 → 600519.SH |
+| `--positions` | 显示 IBKR 持仓 | - |
+| `--sync-positions` | 同步持仓到本地 | - |
+| `--readonly` | 只读模式 | - |
+| `--local` | 显示本地数据库 | - |
 
 ---
 
-## 查询交易记录
+## 文件结构
 
-```bash
-python3 scripts/query_trades.py --workspace ~/.openclaw/workspace
-
-# 查询特定股票
-python3 scripts/query_trades.py --workspace ~/.openclaw/workspace --ts-code 603067.SH
-
-# 查询最近 N 条
-python3 scripts/query_trades.py --workspace ~/.openclaw/workspace --limit 20
+```
+{workspace}/results/trade-journal/
+├── db/
+│   └── trades.db          # SQLite 数据库
+└── records/
+    ├── AAPL.US.md         # 按股票的交易记录
+    ├── 0700.HK.md
+    └── 603067.SH.md
 ```
 
 ---
 
-## 数据库结构
+## 代码转换规则
 
-```sql
-CREATE TABLE trades (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  ts_code TEXT NOT NULL,        -- 股票代码 (如 603067.SH, AAPL.US)
-  side TEXT NOT NULL,           -- BUY/SELL
-  price REAL NOT NULL,          -- 成交价格
-  quantity INTEGER NOT NULL,    -- 成交数量
-  position_before INTEGER,      -- 交易前持仓
-  position_after INTEGER,       -- 交易后持仓
-  reason TEXT,                  -- 交易原因
-  stop_loss REAL,               -- 止损价
-  take_profit TEXT,             -- 止盈目标
-  note TEXT,                    -- 备注
-  timestamp TEXT NOT NULL,      -- 时间戳
-  source TEXT DEFAULT 'manual', -- 来源: manual/ibkr
-  ibkr_exec_id TEXT,            -- IBKR 执行 ID
-  ibkr_order_id INTEGER,        -- IBKR 订单 ID
-  commission REAL,              -- 佣金
-  currency TEXT                 -- 货币
-);
-```
+| 交易所 | 示例 |
+|--------|------|
+| 美股 (NASDAQ/NYSE) | AAPL → AAPL.US |
+| 港股 (SEHK) | 700 → 0700.HK |
+| A股 (沪) | 600519 → 600519.SH |
+| A股 (深) | 000001 → 000001.SZ |
+
+---
+
+## 脚本清单
+
+| 脚本 | 功能 |
+|------|------|
+| `db_schema.py` | 数据库结构和联动逻辑 |
+| `record_trade.py` | 手动记录交易 |
+| `query_trades.py` | 查询交易记录 |
+| `query_positions.py` | 查询持仓 |
+| `sync_ibkr.py` | IBKR API 同步 |
 
 ---
 
 ## 注意事项
 
-1. **IBKR API 限制**: 只能获取最近 7 天的执行记录，历史记录需通过 Flex Query 导出
+1. **IBKR API 限制**: 只能获取当前会话的执行记录，历史需用 Flex Query
 2. **去重机制**: 使用 `ibkr_exec_id` 避免重复导入
-3. **只读模式**: 脚本只读取数据，不会下单或修改 IBKR 账户
+3. **均价算法**: 买入加权平均，卖出不影响均价
+4. **已实现盈亏**: 按 FIFO 简化为均价计算

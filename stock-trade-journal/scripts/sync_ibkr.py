@@ -2,7 +2,7 @@
 """
 IBKR (Interactive Brokers) 交易记录同步工具
 
-从 IBKR TWS/Gateway 获取交易记录并同步到本地数据库。
+从 IBKR TWS/Gateway 获取交易记录并同步到本地数据库，同时更新持仓表。
 
 依赖：
   pip install ib_insync
@@ -21,8 +21,7 @@ IBKR (Interactive Brokers) 交易记录同步工具
 
 import argparse
 import os
-import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional
 
 try:
@@ -31,55 +30,10 @@ except ImportError:
     print("错误: 请先安装 ib_insync: pip install ib_insync")
     exit(1)
 
-
-def ensure_db(db_path: str) -> sqlite3.Connection:
-    """确保数据库和表存在"""
-    os.makedirs(os.path.dirname(db_path), exist_ok=True)
-    conn = sqlite3.connect(db_path)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS trades (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            ts_code TEXT NOT NULL,
-            side TEXT NOT NULL,
-            price REAL NOT NULL,
-            quantity INTEGER NOT NULL,
-            position_before INTEGER,
-            position_after INTEGER,
-            reason TEXT,
-            stop_loss REAL,
-            take_profit TEXT,
-            note TEXT,
-            timestamp TEXT NOT NULL,
-            source TEXT DEFAULT 'manual',
-            ibkr_exec_id TEXT,
-            ibkr_order_id INTEGER,
-            commission REAL,
-            currency TEXT
-        )
-    """)
-    # 添加新列（如果不存在）
-    try:
-        conn.execute("ALTER TABLE trades ADD COLUMN source TEXT DEFAULT 'manual'")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        conn.execute("ALTER TABLE trades ADD COLUMN ibkr_exec_id TEXT")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        conn.execute("ALTER TABLE trades ADD COLUMN ibkr_order_id INTEGER")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        conn.execute("ALTER TABLE trades ADD COLUMN commission REAL")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        conn.execute("ALTER TABLE trades ADD COLUMN currency TEXT")
-    except sqlite3.OperationalError:
-        pass
-    conn.commit()
-    return conn
+from db_schema import (
+    ensure_db, update_position_after_trade, sync_positions_from_ibkr,
+    get_positions, get_position
+)
 
 
 def append_md(md_path: str, row: dict):
@@ -93,6 +47,7 @@ def append_md(md_path: str, row: dict):
             f"## {row['timestamp']} | {row['side']} | {row['ts_code']}\n"
             f"- 价格：{row['price']}\n"
             f"- 数量：{row['quantity']}\n"
+            f"- 金额：{row.get('amount', row['price'] * row['quantity']):.2f}\n"
             f"- 佣金：{row.get('commission', 'N/A')}\n"
             f"- 货币：{row.get('currency', 'N/A')}\n"
             f"- 来源：IBKR (execId: {row.get('ibkr_exec_id', 'N/A')})\n"
@@ -113,7 +68,7 @@ def convert_symbol(contract) -> str:
     exchange = contract.exchange or contract.primaryExchange
 
     # 美股
-    if exchange in ('SMART', 'NASDAQ', 'NYSE', 'ARCA', 'AMEX'):
+    if exchange in ('SMART', 'NASDAQ', 'NYSE', 'ARCA', 'AMEX', 'ISLAND'):
         return f"{symbol}.US"
     # 港股
     elif exchange in ('SEHK', 'HKFE'):
@@ -127,12 +82,7 @@ def convert_symbol(contract) -> str:
         return f"{symbol}.{exchange}"
 
 
-def sync_executions(
-    ib: IB,
-    conn: sqlite3.Connection,
-    md_base: str,
-    days: int = 7
-) -> int:
+def sync_executions(ib: IB, conn, md_base: str, days: int = 7) -> int:
     """
     同步 IBKR 执行记录到本地数据库
 
@@ -171,19 +121,31 @@ def sync_executions(
         side = "BUY" if execution.side == "BOT" else "SELL"
         price = execution.avgPrice
         quantity = int(execution.shares)
+        amount = price * quantity
         timestamp = execution.time.isoformat() if execution.time else datetime.now().isoformat()
 
         # 获取佣金信息
         commission = fill.commissionReport.commission if fill.commissionReport else None
         currency = contract.currency
 
+        # 获取交易前持仓
+        pos_before = get_position(conn, ts_code)
+        position_before = pos_before["quantity"] if pos_before else 0
+
+        # 计算交易后持仓
+        if side == "BUY":
+            position_after = position_before + quantity
+        else:
+            position_after = position_before - quantity
+
         row = {
             "ts_code": ts_code,
             "side": side,
             "price": price,
             "quantity": quantity,
-            "position_before": None,
-            "position_after": None,
+            "amount": amount,
+            "position_before": position_before,
+            "position_after": position_after,
             "reason": f"IBKR Order #{execution.orderId}",
             "stop_loss": None,
             "take_profit": None,
@@ -196,20 +158,23 @@ def sync_executions(
             "currency": currency,
         }
 
-        # 写入数据库
+        # 写入交易记录
         conn.execute("""
             INSERT INTO trades(
-                ts_code, side, price, quantity, position_before, position_after,
-                reason, stop_loss, take_profit, note, timestamp,
-                source, ibkr_exec_id, ibkr_order_id, commission, currency
-            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ts_code, side, price, quantity, amount,
+                position_before, position_after, reason, stop_loss, take_profit,
+                note, timestamp, source, ibkr_exec_id, ibkr_order_id, commission, currency
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, (
-            row["ts_code"], row["side"], row["price"], row["quantity"],
+            row["ts_code"], row["side"], row["price"], row["quantity"], row["amount"],
             row["position_before"], row["position_after"], row["reason"],
             row["stop_loss"], row["take_profit"], row["note"], row["timestamp"],
             row["source"], row["ibkr_exec_id"], row["ibkr_order_id"],
             row["commission"], row["currency"]
         ))
+
+        # 更新持仓表
+        update_position_after_trade(conn, row)
 
         # 写入 Markdown
         md_path = os.path.join(md_base, f"{ts_code}.md")
@@ -222,8 +187,8 @@ def sync_executions(
     return new_count
 
 
-def get_positions(ib: IB) -> list:
-    """获取当前持仓"""
+def fetch_ibkr_positions(ib: IB) -> list:
+    """获取 IBKR 当前持仓"""
     positions = ib.positions()
     result = []
     for pos in positions:
@@ -232,10 +197,35 @@ def get_positions(ib: IB) -> list:
             "ts_code": ts_code,
             "quantity": int(pos.position),
             "avg_cost": pos.avgCost,
-            "market_value": pos.marketValue if hasattr(pos, 'marketValue') else None,
+            "market_value": getattr(pos, 'marketValue', None),
             "account": pos.account,
+            "currency": pos.contract.currency,
         })
     return result
+
+
+def print_positions_table(positions: list, source: str = ""):
+    """打印持仓表格"""
+    if not positions:
+        print("  无持仓")
+        return
+
+    print(f"\n{'='*70}")
+    print(f"  {'代码':<12} {'数量':>10} {'均价':>12} {'市值':>12} {'货币':<6}")
+    print(f"{'='*70}")
+
+    for pos in positions:
+        qty = pos.get('quantity', 0)
+        if qty == 0:
+            continue
+        avg_cost = pos.get('avg_cost') or pos.get('avg_cost', 0)
+        market_value = pos.get('market_value') or pos.get('market_value', '-')
+        currency = pos.get('currency', 'USD')
+
+        mv_str = f"{market_value:,.2f}" if isinstance(market_value, (int, float)) else str(market_value)
+        print(f"  {pos['ts_code']:<12} {qty:>10,} {avg_cost:>12.2f} {mv_str:>12} {currency:<6}")
+
+    print(f"{'='*70}\n")
 
 
 def main():
@@ -246,12 +236,23 @@ def main():
     parser.add_argument("--client-id", type=int, default=1, help="客户端 ID (默认: 1)")
     parser.add_argument("--days", type=int, default=7, help="同步最近 N 天的记录 (默认: 7)")
     parser.add_argument("--positions", action="store_true", help="显示当前持仓")
+    parser.add_argument("--sync-positions", action="store_true", help="同步 IBKR 持仓到本地数据库")
     parser.add_argument("--readonly", action="store_true", help="只读模式，只显示不写入")
+    parser.add_argument("--local", action="store_true", help="显示本地数据库持仓")
     args = parser.parse_args()
 
     base = os.path.join(args.workspace, "results", "trade-journal")
     db_path = os.path.join(base, "db", "trades.db")
     md_base = os.path.join(base, "records")
+
+    # 如果只查看本地数据库
+    if args.local:
+        conn = ensure_db(db_path)
+        print("\n=== 本地数据库持仓 ===")
+        local_positions = get_positions(conn)
+        print_positions_table(local_positions, "本地")
+        conn.close()
+        return
 
     print(f"连接到 IBKR TWS/Gateway ({args.host}:{args.port})...")
 
@@ -260,22 +261,34 @@ def main():
         ib.connect(args.host, args.port, clientId=args.client_id, readonly=True)
         print(f"已连接! 账户: {ib.managedAccounts()}")
 
+        # 获取 IBKR 持仓
+        ibkr_positions = fetch_ibkr_positions(ib)
+
         if args.positions:
-            print("\n=== 当前持仓 ===")
-            positions = get_positions(ib)
-            if positions:
-                for pos in positions:
-                    print(f"  {pos['ts_code']}: {pos['quantity']} 股 @ 均价 {pos['avg_cost']:.2f}")
-            else:
-                print("  无持仓")
-            print()
+            print("\n=== IBKR 当前持仓 ===")
+            print_positions_table(ibkr_positions, "IBKR")
 
         if not args.readonly:
             conn = ensure_db(db_path)
+
+            # 同步持仓到本地数据库
+            if args.sync_positions and ibkr_positions:
+                print("\n=== 同步持仓到本地数据库 ===")
+                sync_positions_from_ibkr(conn, ibkr_positions)
+                print(f"  已同步 {len(ibkr_positions)} 个持仓")
+
+            # 同步执行记录
             print(f"\n=== 同步执行记录 (最近 {args.days} 天) ===")
             new_count = sync_executions(ib, conn, md_base, args.days)
-            conn.close()
+
             print(f"\n同步完成! 新增 {new_count} 条交易记录")
+
+            # 显示本地数据库持仓
+            print("\n=== 本地数据库持仓 ===")
+            local_positions = get_positions(conn)
+            print_positions_table(local_positions, "本地")
+
+            conn.close()
             print(f"数据库: {db_path}")
             print(f"Markdown: {md_base}/")
         else:
