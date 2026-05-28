@@ -2,3 +2,6 @@
 
 # IBKR API 连接 (可选，仅同步 IBKR 交易时需要)
 ib_insync>=0.9.86
+
+# Web 界面 (可选)
+flask>=2.0.0
