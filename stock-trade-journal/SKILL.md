@@ -296,6 +296,85 @@ python3 web/app.py --workspace ~/.openclaw/workspace --host 0.0.0.0
 
 ---
 
+## TradingView 持仓分析
+
+提供 TradingView 图表链接生成和持仓分析功能。
+
+### 命令
+
+```bash
+# 显示所有持仓的 TradingView 链接
+python3 scripts/analyze_positions.py --workspace ~/.openclaw/workspace link
+
+# 显示特定股票链接
+python3 scripts/analyze_positions.py --workspace ~/.openclaw/workspace link --ts-code AAPL.US
+
+# 批量打开 TradingView 图表（默认 5 个）
+python3 scripts/analyze_positions.py --workspace ~/.openclaw/workspace tradingview
+
+# 打开所有持仓图表
+python3 scripts/analyze_positions.py --workspace ~/.openclaw/workspace tv --all
+
+# 指定时间周期 (1,5,15,30,60,240,D,W,M)
+python3 scripts/analyze_positions.py --workspace ~/.openclaw/workspace tv --interval W
+
+# 生成持仓分析报告
+python3 scripts/analyze_positions.py --workspace ~/.openclaw/workspace report
+
+# 导出报告到文件
+python3 scripts/analyze_positions.py --workspace ~/.openclaw/workspace report -o report.md
+```
+
+### 代码转换规则
+
+| 本地格式 | TradingView 格式 |
+|----------|------------------|
+| AAPL.US | NASDAQ:AAPL |
+| 0700.HK | HKEX:0700 |
+| 600519.SH | SSE:600519 |
+| 000001.SZ | SZSE:000001 |
+
+### 分析报告内容
+
+- 📊 持仓概览（数量、总成本、已实现盈亏）
+- 🌍 按市场分布统计
+- 📈 持仓详情表格（含 TradingView 链接）
+- 🔗 快捷链接汇总
+
+---
+
+## 与 tradingview-quantitative 集成
+
+如果已安装 `tradingview-quantitative` skill，可配合使用获取更强大的分析能力：
+
+### 持仓技术分析
+
+```
+# 1. 查询持仓
+python3 scripts/query_positions.py --workspace ~/.openclaw/workspace --json
+
+# 2. 使用 tradingview-quantitative 分析（在 Claude 中）
+请分析我的持仓股票：AAPL.US, NVDA.US, 0700.HK 的技术面
+```
+
+### 可用的 TradingView 工具
+
+| 工具 | 用途 | 示例 |
+|------|------|------|
+| `get_quote` | 实时报价 | 获取 AAPL 最新价格 |
+| `get_price` | K线数据 | 获取日/周线图 |
+| `get_ta` | 技术分析 | RSI、MACD 等指标 |
+| `get_news` | 新闻资讯 | 相关新闻动态 |
+| `search_market` | 搜索标的 | 查找股票代码 |
+
+### 推荐工作流
+
+1. **日常检视**: 查持仓 → TradingView 技术分析 → 识别风险
+2. **交易决策**: 记录交易 → 更新持仓 → 图表确认
+3. **周末复盘**: 生成报告 → 批量分析 → 调整策略
+
+---
+
 ## 注意事项
 
 1. **IBKR API 限制**: 只能获取当前会话的执行记录，历史需用 Flex Query
