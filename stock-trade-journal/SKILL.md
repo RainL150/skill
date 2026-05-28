@@ -233,6 +233,66 @@ python3 scripts/sync_ibkr.py \
 | `query_trades.py` | 查询交易记录 |
 | `query_positions.py` | 查询持仓 |
 | `sync_ibkr.py` | IBKR API 同步 |
+| `web/app.py` | Web 可视化界面 |
+
+---
+
+## Web 可视化界面
+
+提供浏览器访问的可视化 Dashboard，实时查看持仓和交易记录。
+
+### 安装依赖
+
+```bash
+pip install flask
+```
+
+### 启动服务
+
+```bash
+# 启动 Web 服务 (默认端口 5000)
+python3 web/app.py --workspace ~/.openclaw/workspace
+
+# 指定端口
+python3 web/app.py --workspace ~/.openclaw/workspace --port 8080
+
+# 允许局域网访问
+python3 web/app.py --workspace ~/.openclaw/workspace --host 0.0.0.0
+```
+
+### 访问地址
+
+启动后访问: **http://localhost:5000**
+
+### 功能特性
+
+| 功能 | 说明 |
+|------|------|
+| 📊 **持仓表** | 代码、数量、均价、成本、盈亏 |
+| 📝 **交易记录** | 时间、方向、价格、数量、来源 |
+| 📈 **统计卡片** | 持仓数、总成本、已实现盈亏、交易笔数 |
+| 🔄 **自动刷新** | 每 30 秒自动更新数据 |
+| 📱 **响应式** | 支持手机/平板访问 |
+| 🌙 **暗色主题** | 护眼设计 |
+
+### API 端点
+
+| 端点 | 说明 |
+|------|------|
+| `GET /` | Web 界面首页 |
+| `GET /api/stats` | 统计数据 |
+| `GET /api/positions` | 持仓列表 |
+| `GET /api/trades?limit=50` | 交易记录 |
+| `GET /api/position/<ts_code>` | 单个持仓详情 |
+
+### 参数说明
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `--workspace` | 工作目录 | (必填) |
+| `--port` | 端口号 | 5000 |
+| `--host` | 监听地址 | 127.0.0.1 |
+| `--debug` | 调试模式 | - |
 
 ---
 
