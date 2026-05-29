@@ -1,12 +1,31 @@
 ---
 name: stock-trade-journal
-description: 交易日志系统，支持手动记录和 IBKR API 自动同步。交易表与持仓表联动，自动计算均价和盈亏。
-when: 当用户说"记一下这笔交易""记录交易""同步IBKR""查询持仓""持仓盈亏"时使用。
+description: 交易日志系统，支持手动记录和 IBKR API 自动同步。交易表与持仓表联动，自动计算均价和盈亏。支持关注列表管理。
+triggers:
+  - /stj
+  - /trade
+  - /交易
+  - /持仓
+  - /关注
+when: |
+  当用户说以下内容时使用：
+  - "记一下这笔交易" "记录交易" "买入/卖出 XXX"
+  - "同步IBKR" "同步盈透"
+  - "查询持仓" "持仓盈亏" "我的持仓"
+  - "关注 XXX" "加入关注" "关注列表"
+  - "分析持仓" "TradingView"
+  - 或直接使用 /stj 命令
 examples:
+  - "/stj 记录：NVDA.US 在130买入100股"
+  - "/stj 查看持仓"
+  - "/stj 关注 AVGO.US --category AI芯片 --target 200"
+  - "/stj 关注列表"
+  - "/stj 同步IBKR"
   - "记录：603067.SH 在44.1减仓2900股"
   - "同步一下 IBKR 的交易记录"
   - "查看当前持仓"
   - "AAPL 的持仓成本是多少"
+  - "关注一下 META.US，目标价 700"
 metadata:
   {
     "openclaw": {
@@ -19,6 +38,20 @@ metadata:
 # stock-trade-journal
 
 交易日志系统，支持手动记录和 IBKR API 自动同步。**交易表与持仓表联动**，每次交易自动更新持仓、均价和已实现盈亏。
+
+## 快速命令
+
+| 命令 | 功能 | 示例 |
+|------|------|------|
+| `/stj 记录` | 记录交易 | `/stj 记录 NVDA.US 买入100股@130` |
+| `/stj 持仓` | 查看持仓 | `/stj 持仓` 或 `/stj 持仓 NVDA.US` |
+| `/stj 关注` | 添加关注 | `/stj 关注 AVGO.US --target 200` |
+| `/stj 关注列表` | 查看关注 | `/stj 关注列表` |
+| `/stj 分析` | TradingView分析 | `/stj 分析` |
+| `/stj 同步` | 同步IBKR | `/stj 同步IBKR` |
+| `/stj web` | 启动Web界面 | `/stj web` |
+
+---
 
 ## 核心特性
 
