@@ -17,6 +17,10 @@ triggers:
   - "怎么跑起来"
   - "project-analyzer claude-md"
   - "生成 CLAUDE.md"
+  - "project-analyzer save"
+  - "保存分析报告"
+  - "输出到文件"
+  - "project-analyzer --save"
 origin: local
 tools: Read, Glob, Grep, Bash, Task, WebFetch
 ---
@@ -40,7 +44,7 @@ tools: Read, Glob, Grep, Bash, Task, WebFetch
 
 ---
 
-## 四个触发命令
+## 五个触发命令
 
 | 命令 | 输出 | 目的 |
 |------|------|------|
@@ -48,12 +52,19 @@ tools: Read, Glob, Grep, Bash, Task, WebFetch
 | `/project-analyzer modules` | 模块拆解 | 理解实现流程和原理 |
 | `/project-analyzer setup` | 启动指南 | 把项目跑起来 |
 | `/project-analyzer claude-md` | CLAUDE.md | 生成项目配置文件 |
+| `/project-analyzer save` | 保存到文件 | 输出 MD 文件到项目目录 |
 
 **路由逻辑：**
 - 包含 `modules` 或 `模块拆解` → 输出模块拆解文档
 - 包含 `setup` 或 `启动指南` 或 `怎么跑起来` → 输出启动指南
 - 包含 `claude-md` 或 `生成 CLAUDE.md` → 输出 CLAUDE.md
+- 包含 `save` 或 `--save` 或 `保存分析报告` 或 `输出到文件` → 保存报告到 MD 文件
 - 否则 → 输出分析报告（默认）
+
+**保存模式说明：**
+- 默认保存路径：`<项目根目录>/ANALYSIS_REPORT.md`
+- 可指定路径：`/project-analyzer save ./docs/analysis.md`
+- 支持组合：`/project-analyzer modules save` → 保存模块拆解到文件
 
 ---
 
@@ -877,6 +888,125 @@ Score = (inbound_norm × 0.4) + (churn_norm × 0.3) + (name_norm × 0.2) + (size
 
 ---
 
+## 文件输出规范 (`/project-analyzer save`)
+
+### 触发方式
+
+```bash
+# 保存分析报告到默认路径
+/project-analyzer save
+
+# 保存到指定路径
+/project-analyzer save ./docs/analysis.md
+
+# 组合使用：分析 + 保存
+分析这个项目，保存到文件
+
+# 保存模块拆解
+/project-analyzer modules save
+
+# 保存启动指南
+/project-analyzer setup save
+```
+
+### 输出文件命名规范
+
+| 文档类型 | 默认文件名 | 保存位置 |
+|----------|-----------|----------|
+| 分析报告 | `ANALYSIS_REPORT.md` | 项目根目录 |
+| 模块拆解 | `MODULE_BREAKDOWN.md` | 项目根目录 |
+| 启动指南 | `SETUP_GUIDE.md` | 项目根目录 |
+| CLAUDE.md | `CLAUDE.md` | 项目根目录 |
+
+### MD 文档标准结构
+
+**所有输出文件必须遵循以下结构：**
+
+```markdown
+# [项目名] [文档类型]
+
+> 分析框架: project-analyzer v7
+> 分析时间: YYYY-MM-DD
+> 分析深度: 快速 / 标准 / 深入
+> 项目路径: /path/to/project
+
+---
+
+## 一句话总结
+
+[必填，放在最前面]
+
+---
+
+## 目录
+
+- [一、章节1](#一章节1)
+- [二、章节2](#二章节2)
+...
+
+---
+
+## 一、章节1
+
+[内容]
+
+---
+
+## 附录
+
+### 评分明细
+[如适用]
+
+### 文件索引
+[如适用]
+
+---
+
+> 由 project-analyzer v7 自动生成 | YYYY-MM-DD
+```
+
+### 格式规范
+
+| 元素 | 规范 | 示例 |
+|------|------|------|
+| 标题层级 | 最多 4 级，用 `#` 到 `####` | `## 一、定位` |
+| 章节编号 | 中文数字 + 顿号 | `一、` `二、` `三、` |
+| 表格 | 必须有表头，列对齐 | `\| 列1 \| 列2 \|` |
+| 代码块 | 必须标注语言 | ` ```typescript ` |
+| Mermaid 图 | 必须能在 GitHub 渲染 | ` ```mermaid ` |
+| 文件引用 | 使用反引号 + 相对路径 | `` `src/index.ts:42` `` |
+| 通俗解释 | 使用引用块 | `> **通俗理解**：...` |
+| 分隔线 | 主要章节间用 `---` | |
+
+### 内容密度控制
+
+| 文档类型 | 目标字数 | 章节数 |
+|----------|----------|--------|
+| 分析报告（快速） | 2000-3000 字 | 5-6 个 |
+| 分析报告（标准） | 4000-6000 字 | 8-10 个 |
+| 分析报告（深入） | 8000-12000 字 | 10+ 个 |
+| 模块拆解 | 3000-5000 字 | 按模块数 |
+| 启动指南 | 1000-2000 字 | 5-6 个 |
+
+### 保存行为
+
+1. **检查冲突**：如果目标文件已存在，询问用户是否覆盖
+2. **创建目录**：如果指定路径的目录不存在，自动创建
+3. **输出确认**：保存后输出文件路径和大小
+4. **格式验证**：保存前检查 Mermaid 语法是否正确
+
+### 输出示例
+
+```
+✓ 分析报告已保存
+  路径: /path/to/project/ANALYSIS_REPORT.md
+  大小: 4.2 KB
+  章节: 10 个
+  图表: 3 个 Mermaid 图
+```
+
+---
+
 ## 与其他 Skill 配合
 
 | 场景 | 组合使用 |
@@ -887,3 +1017,4 @@ Score = (inbound_norm × 0.4) + (churn_norm × 0.3) + (name_norm × 0.2) + (size
 | 生产评估 | `/project-analyzer` → `production-audit` |
 | 贡献代码 | `/project-analyzer modules` → 理解后开始改 |
 | 项目配置 | `/project-analyzer claude-md` → 生成 CLAUDE.md |
+| 保存报告 | `/project-analyzer save` → 输出 MD 文件 |
