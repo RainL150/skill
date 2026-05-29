@@ -38,6 +38,7 @@ metadata:
 CREATE TABLE trades (
   id INTEGER PRIMARY KEY,
   ts_code TEXT NOT NULL,        -- 股票代码
+  exchange TEXT,                -- 交易所
   side TEXT NOT NULL,           -- BUY/SELL
   price REAL NOT NULL,          -- 成交价
   quantity INTEGER NOT NULL,    -- 数量
@@ -62,6 +63,7 @@ CREATE TABLE trades (
 CREATE TABLE positions (
   id INTEGER PRIMARY KEY,
   ts_code TEXT NOT NULL UNIQUE, -- 股票代码（唯一）
+  exchange TEXT,                -- 交易所
   quantity INTEGER NOT NULL,    -- 当前持仓
   avg_cost REAL,                -- 平均成本
   total_cost REAL,              -- 总成本
@@ -94,6 +96,7 @@ CREATE TABLE positions (
 python3 scripts/record_trade.py \
   --workspace ~/.openclaw/workspace \
   --ts-code AAPL.US \
+  --exchange NASDAQ \
   --side BUY \
   --price 150.5 \
   --quantity 100 \
@@ -103,6 +106,7 @@ python3 scripts/record_trade.py \
 输出：
 ```
 ✅ 交易已记录: AAPL.US BUY 100 @ 150.5
+   交易所: NASDAQ
    金额: 15050.00 CNY
    持仓变化: 0 -> 100
    当前均价: 150.5000
@@ -232,8 +236,87 @@ python3 scripts/sync_ibkr.py \
 | `record_trade.py` | 手动记录交易 |
 | `query_trades.py` | 查询交易记录 |
 | `query_positions.py` | 查询持仓 |
+| `watchlist.py` | 关注列表管理 |
+| `analyze_positions.py` | TradingView 分析 |
 | `sync_ibkr.py` | IBKR API 同步 |
 | `web/app.py` | Web 可视化界面 |
+
+---
+
+## 关注列表
+
+管理股票关注列表，支持分类、目标价、止损价、优先级等。
+
+### 添加关注
+
+```bash
+# 基础添加
+python3 scripts/watchlist.py --workspace ~/.openclaw/workspace add NVDA.US
+
+# 完整参数
+python3 scripts/watchlist.py --workspace ~/.openclaw/workspace add NVDA.US \
+  --name "NVIDIA" \
+  --category "AI芯片" \
+  --target 150 \
+  --stop 120 \
+  --reason "AI龙头，数据中心需求强劲" \
+  --priority 2 \
+  --note "等回调买入"
+```
+
+### 查看列表
+
+```bash
+# 查看所有关注
+python3 scripts/watchlist.py --workspace ~/.openclaw/workspace ls
+
+# 按分类筛选
+python3 scripts/watchlist.py --workspace ~/.openclaw/workspace ls -c "AI芯片"
+
+# JSON 格式
+python3 scripts/watchlist.py --workspace ~/.openclaw/workspace ls --json
+
+# 查看单个股票
+python3 scripts/watchlist.py --workspace ~/.openclaw/workspace show NVDA.US
+```
+
+### 更新关注
+
+```bash
+# 更新目标价
+python3 scripts/watchlist.py --workspace ~/.openclaw/workspace up NVDA.US --target 160
+
+# 更新状态为已买入
+python3 scripts/watchlist.py --workspace ~/.openclaw/workspace up NVDA.US --status bought
+
+# 更新优先级
+python3 scripts/watchlist.py --workspace ~/.openclaw/workspace up NVDA.US --priority 1
+```
+
+### 删除关注
+
+```bash
+python3 scripts/watchlist.py --workspace ~/.openclaw/workspace rm NVDA.US
+```
+
+### 查看分类
+
+```bash
+python3 scripts/watchlist.py --workspace ~/.openclaw/workspace cats
+```
+
+### 参数说明
+
+| 参数 | 说明 | 示例 |
+|------|------|------|
+| `--name` | 股票名称 | "NVIDIA" |
+| `--category`, `-c` | 分类标签 | "AI芯片" |
+| `--target`, `-t` | 目标价 | 150.0 |
+| `--stop`, `-s` | 止损价 | 120.0 |
+| `--reason`, `-r` | 关注原因 | "技术突破" |
+| `--priority`, `-p` | 优先级 (0=普通, 1=重点⭐, 2=紧急🔥) | 2 |
+| `--status` | 状态 (watching/bought/removed) | watching |
+| `--note`, `-n` | 备注 | "等回调" |
 
 ---
 

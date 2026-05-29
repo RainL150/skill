@@ -22,7 +22,7 @@ IBKR (Interactive Brokers) 交易记录同步工具
 import argparse
 import os
 from datetime import datetime
-from typing import Optional
+from typing import Any
 
 try:
     from ib_insync import IB, util
@@ -34,25 +34,21 @@ from db_schema import (
     ensure_db, update_position_after_trade, sync_positions_from_ibkr,
     get_positions, get_position
 )
+from journal_markdown import append_trade_md
 
 
-def append_md(md_path: str, row: dict):
-    """追加交易记录到 Markdown 文件"""
-    os.makedirs(os.path.dirname(md_path), exist_ok=True)
-    if not os.path.exists(md_path):
-        with open(md_path, "w", encoding="utf-8") as f:
-            f.write(f"# {row['ts_code']} 交易记录\n\n")
-    with open(md_path, "a", encoding="utf-8") as f:
-        f.write(
-            f"## {row['timestamp']} | {row['side']} | {row['ts_code']}\n"
-            f"- 价格：{row['price']}\n"
-            f"- 数量：{row['quantity']}\n"
-            f"- 金额：{row.get('amount', row['price'] * row['quantity']):.2f}\n"
-            f"- 佣金：{row.get('commission', 'N/A')}\n"
-            f"- 货币：{row.get('currency', 'N/A')}\n"
-            f"- 来源：IBKR (execId: {row.get('ibkr_exec_id', 'N/A')})\n"
-            f"- 备注：{row.get('note', '')}\n\n"
-        )
+US_EXCHANGES = {"SMART", "NASDAQ", "NYSE", "ARCA", "AMEX", "ISLAND", "BATS", "IEX"}
+
+
+def get_contract_exchange(contract) -> str:
+    """返回用于记录和 TradingView 的交易所。"""
+    primary_exchange = getattr(contract, "primaryExchange", None)
+    exchange = getattr(contract, "exchange", None)
+    if primary_exchange and primary_exchange != "SMART":
+        return primary_exchange.upper()
+    if exchange and exchange != "SMART":
+        return exchange.upper()
+    return ""
 
 
 def convert_symbol(contract) -> str:
@@ -65,10 +61,12 @@ def convert_symbol(contract) -> str:
         - A Stock (via SEHK connect): 600519 -> 600519.SH
     """
     symbol = contract.symbol
-    exchange = contract.exchange or contract.primaryExchange
+    exchange = get_contract_exchange(contract)
+    routing_exchange = (getattr(contract, "exchange", None) or getattr(contract, "primaryExchange", None) or "").upper()
+    lookup_exchange = exchange or routing_exchange
 
     # 美股
-    if exchange in ('SMART', 'NASDAQ', 'NYSE', 'ARCA', 'AMEX', 'ISLAND'):
+    if lookup_exchange in US_EXCHANGES:
         return f"{symbol}.US"
     # 港股
     elif exchange in ('SEHK', 'HKFE'):
@@ -118,6 +116,7 @@ def sync_executions(ib: IB, conn, md_base: str, days: int = 7) -> int:
         execution = fill.execution
 
         ts_code = convert_symbol(contract)
+        exchange = get_contract_exchange(contract)
         side = "BUY" if execution.side == "BOT" else "SELL"
         price = execution.avgPrice
         quantity = int(execution.shares)
@@ -138,8 +137,9 @@ def sync_executions(ib: IB, conn, md_base: str, days: int = 7) -> int:
         else:
             position_after = position_before - quantity
 
-        row = {
+        row: dict[str, Any] = {
             "ts_code": ts_code,
+            "exchange": exchange,
             "side": side,
             "price": price,
             "quantity": quantity,
@@ -161,13 +161,13 @@ def sync_executions(ib: IB, conn, md_base: str, days: int = 7) -> int:
         # 写入交易记录
         conn.execute("""
             INSERT INTO trades(
-                ts_code, side, price, quantity, amount,
+                ts_code, exchange, side, price, quantity, amount,
                 position_before, position_after, reason, stop_loss, take_profit,
                 note, timestamp, source, ibkr_exec_id, ibkr_order_id, commission, currency
-            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, (
-            row["ts_code"], row["side"], row["price"], row["quantity"], row["amount"],
-            row["position_before"], row["position_after"], row["reason"],
+            row["ts_code"], row["exchange"], row["side"], row["price"], row["quantity"],
+            row["amount"], row["position_before"], row["position_after"], row["reason"],
             row["stop_loss"], row["take_profit"], row["note"], row["timestamp"],
             row["source"], row["ibkr_exec_id"], row["ibkr_order_id"],
             row["commission"], row["currency"]
@@ -178,7 +178,7 @@ def sync_executions(ib: IB, conn, md_base: str, days: int = 7) -> int:
 
         # 写入 Markdown
         md_path = os.path.join(md_base, f"{ts_code}.md")
-        append_md(md_path, row)
+        append_trade_md(md_path, row)
 
         new_count += 1
         print(f"  同步: {ts_code} {side} {quantity} @ {price}")
@@ -187,7 +187,7 @@ def sync_executions(ib: IB, conn, md_base: str, days: int = 7) -> int:
     return new_count
 
 
-def fetch_ibkr_positions(ib: IB) -> list:
+def fetch_ibkr_positions(ib: IB) -> list[dict[str, Any]]:
     """获取 IBKR 当前持仓"""
     positions = ib.positions()
     result = []
@@ -195,6 +195,7 @@ def fetch_ibkr_positions(ib: IB) -> list:
         ts_code = convert_symbol(pos.contract)
         result.append({
             "ts_code": ts_code,
+            "exchange": get_contract_exchange(pos.contract),
             "quantity": int(pos.position),
             "avg_cost": pos.avgCost,
             "market_value": getattr(pos, 'marketValue', None),
@@ -204,14 +205,14 @@ def fetch_ibkr_positions(ib: IB) -> list:
     return result
 
 
-def print_positions_table(positions: list, source: str = ""):
+def print_positions_table(positions: list[dict[str, Any]], source: str = "") -> None:
     """打印持仓表格"""
     if not positions:
         print("  无持仓")
         return
 
     print(f"\n{'='*70}")
-    print(f"  {'代码':<12} {'数量':>10} {'均价':>12} {'市值':>12} {'货币':<6}")
+    print(f"  {'代码':<12} {'交易所':<10} {'数量':>10} {'均价':>12} {'市值':>12} {'货币':<6}")
     print(f"{'='*70}")
 
     for pos in positions:
@@ -221,14 +222,15 @@ def print_positions_table(positions: list, source: str = ""):
         avg_cost = pos.get('avg_cost') or pos.get('avg_cost', 0)
         market_value = pos.get('market_value') or pos.get('market_value', '-')
         currency = pos.get('currency', 'USD')
+        exchange = pos.get('exchange') or '-'
 
         mv_str = f"{market_value:,.2f}" if isinstance(market_value, (int, float)) else str(market_value)
-        print(f"  {pos['ts_code']:<12} {qty:>10,} {avg_cost:>12.2f} {mv_str:>12} {currency:<6}")
+        print(f"  {pos['ts_code']:<12} {exchange:<10} {qty:>10,} {avg_cost:>12.2f} {mv_str:>12} {currency:<6}")
 
     print(f"{'='*70}\n")
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="IBKR 交易记录同步工具")
     parser.add_argument("--workspace", required=True, help="工作目录")
     parser.add_argument("--host", default="127.0.0.1", help="TWS/Gateway 主机 (默认: 127.0.0.1)")

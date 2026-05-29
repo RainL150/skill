@@ -346,6 +346,7 @@ HTML_TEMPLATE = '''
                     <thead>
                         <tr>
                             <th>代码</th>
+                            <th>交易所</th>
                             <th>持仓</th>
                             <th>均价</th>
                             <th>总成本</th>
@@ -363,6 +364,7 @@ HTML_TEMPLATE = '''
                 html += `
                     <tr>
                         <td><strong>${pos.ts_code}</strong></td>
+                        <td>${pos.exchange || '-'}</td>
                         <td>${formatNumber(pos.quantity, 0)}</td>
                         <td>${formatNumber(pos.avg_cost, 4)}</td>
                         <td>${formatNumber(pos.total_cost, 2)}</td>
@@ -395,6 +397,7 @@ HTML_TEMPLATE = '''
                         <tr>
                             <th>时间</th>
                             <th>代码</th>
+                            <th>交易所</th>
                             <th>方向</th>
                             <th>价格</th>
                             <th>数量</th>
@@ -416,6 +419,7 @@ HTML_TEMPLATE = '''
                     <tr>
                         <td>${time}</td>
                         <td><strong>${trade.ts_code}</strong></td>
+                        <td>${trade.exchange || '-'}</td>
                         <td><span class="${badgeClass}">${sideText}</span></td>
                         <td>${formatNumber(trade.price, 4)}</td>
                         <td>${formatNumber(trade.quantity, 0)}</td>

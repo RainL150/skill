@@ -12,16 +12,18 @@ import argparse
 import os
 import webbrowser
 from datetime import datetime
+from typing import Any, Optional
 
 from db_schema import ensure_db, get_positions, get_position
 
 
-def convert_to_tv_symbol(ts_code: str) -> str:
+def convert_to_tv_symbol(ts_code: str, exchange: Optional[str] = None) -> str:
     """
     将统一代码转换为 TradingView 格式
 
     Examples:
-        AAPL.US -> NASDAQ:AAPL
+        AAPL.US + NASDAQ -> NASDAQ:AAPL
+        AAPL.US + NYSE -> NYSE:AAPL
         0700.HK -> HKEX:0700
         600519.SH -> SSE:600519
         000001.SZ -> SZSE:000001
@@ -40,16 +42,16 @@ def convert_to_tv_symbol(ts_code: str) -> str:
         'SZ': 'SZSE',
     }
 
-    exchange = market_map.get(market.upper(), market)
+    tv_exchange = exchange or market_map.get(market.upper(), market)
 
     # 港股需要补零到4位
     if market.upper() == 'HK':
         symbol = symbol.zfill(4)
 
-    return f"{exchange}:{symbol}"
+    return f"{tv_exchange}:{symbol}"
 
 
-def get_tradingview_url(ts_code: str, interval: str = "D") -> str:
+def get_tradingview_url(ts_code: str, interval: str = "D", exchange: Optional[str] = None) -> str:
     """
     生成 TradingView 图表 URL
 
@@ -60,13 +62,13 @@ def get_tradingview_url(ts_code: str, interval: str = "D") -> str:
     Returns:
         TradingView URL
     """
-    tv_symbol = convert_to_tv_symbol(ts_code)
+    tv_symbol = convert_to_tv_symbol(ts_code, exchange)
     return f"https://www.tradingview.com/chart/?symbol={tv_symbol}&interval={interval}"
 
 
-def get_tradingview_widget_config(ts_code: str) -> dict:
+def get_tradingview_widget_config(ts_code: str, exchange: Optional[str] = None) -> dict[str, Any]:
     """生成 TradingView Widget 配置"""
-    tv_symbol = convert_to_tv_symbol(ts_code)
+    tv_symbol = convert_to_tv_symbol(ts_code, exchange)
     return {
         "symbol": tv_symbol,
         "width": "100%",
@@ -87,7 +89,7 @@ def get_tradingview_widget_config(ts_code: str) -> dict:
     }
 
 
-def generate_analysis_report(positions: list) -> str:
+def generate_analysis_report(positions: list[dict[str, Any]]) -> str:
     """生成持仓分析报告"""
     report = []
     report.append("# 持仓分析报告")
@@ -128,19 +130,20 @@ def generate_analysis_report(positions: list) -> str:
 
     # 持仓详情
     report.append("## 持仓详情\n")
-    report.append("| 代码 | 数量 | 均价 | 成本 | 已实现盈亏 | TradingView |")
-    report.append("|------|------|------|------|------------|-------------|")
+    report.append("| 代码 | 交易所 | 数量 | 均价 | 成本 | 已实现盈亏 | TradingView |")
+    report.append("|------|--------|------|------|------|------------|-------------|")
 
     for pos in positions:
         ts_code = pos['ts_code']
+        exchange = pos.get('exchange')
         qty = pos.get('quantity', 0)
         avg_cost = pos.get('avg_cost', 0) or 0
         total_cost = pos.get('total_cost', 0) or 0
         pnl = pos.get('realized_pnl', 0) or 0
-        tv_url = get_tradingview_url(ts_code)
+        tv_url = get_tradingview_url(ts_code, exchange=exchange)
 
         pnl_str = f"{pnl:+,.2f}" if pnl else "-"
-        report.append(f"| {ts_code} | {qty:,} | {avg_cost:.2f} | {total_cost:,.2f} | {pnl_str} | [📈 图表]({tv_url}) |")
+        report.append(f"| {ts_code} | {exchange or '-'} | {qty:,} | {avg_cost:.2f} | {total_cost:,.2f} | {pnl_str} | [📈 图表]({tv_url}) |")
 
     report.append("")
 
@@ -148,22 +151,24 @@ def generate_analysis_report(positions: list) -> str:
     report.append("## TradingView 快捷链接\n")
     for pos in positions:
         ts_code = pos['ts_code']
-        tv_symbol = convert_to_tv_symbol(ts_code)
-        tv_url = get_tradingview_url(ts_code)
+        exchange = pos.get('exchange')
+        tv_symbol = convert_to_tv_symbol(ts_code, exchange)
+        tv_url = get_tradingview_url(ts_code, exchange=exchange)
         report.append(f"- [{ts_code}]({tv_url}) → `{tv_symbol}`")
 
     return "\n".join(report)
 
 
-def open_tradingview_charts(positions: list, interval: str = "D", max_tabs: int = 5):
+def open_tradingview_charts(positions: list[dict[str, Any]], interval: str = "D", max_tabs: int = 5) -> None:
     """批量打开 TradingView 图表"""
     print(f"打开 TradingView 图表 (最多 {max_tabs} 个)...\n")
 
     opened = 0
     for pos in positions[:max_tabs]:
         ts_code = pos['ts_code']
-        url = get_tradingview_url(ts_code, interval)
-        tv_symbol = convert_to_tv_symbol(ts_code)
+        exchange = pos.get('exchange')
+        url = get_tradingview_url(ts_code, interval, exchange)
+        tv_symbol = convert_to_tv_symbol(ts_code, exchange)
 
         print(f"  📈 {ts_code} → {tv_symbol}")
         webbrowser.open(url)
@@ -175,7 +180,7 @@ def open_tradingview_charts(positions: list, interval: str = "D", max_tabs: int 
     print(f"\n✅ 已打开 {opened} 个图表")
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="持仓分析工具")
     parser.add_argument("--workspace", required=True, help="工作目录")
 
@@ -212,9 +217,12 @@ def main():
 
     conn = ensure_db(db_path)
     positions = get_positions(conn)
-    conn.close()
+    all_positions = get_positions(conn, include_zero=True)
+    positions_by_code = {pos["ts_code"]: pos for pos in all_positions}
 
-    if not positions:
+    command_has_ts_code = getattr(args, "ts_code", None)
+    if not positions and not command_has_ts_code:
+        conn.close()
         print("无持仓数据")
         return
 
@@ -222,8 +230,10 @@ def main():
     if args.command in ("tradingview", "tv"):
         if args.ts_code:
             # 打开单个股票
-            url = get_tradingview_url(args.ts_code, args.interval)
-            print(f"打开: {args.ts_code} → {convert_to_tv_symbol(args.ts_code)}")
+            pos = positions_by_code.get(args.ts_code) or get_position(conn, args.ts_code)
+            exchange = pos.get("exchange") if pos else None
+            url = get_tradingview_url(args.ts_code, args.interval, exchange)
+            print(f"打开: {args.ts_code} → {convert_to_tv_symbol(args.ts_code, exchange)}")
             webbrowser.open(url)
         else:
             # 打开持仓股票
@@ -241,17 +251,22 @@ def main():
 
     elif args.command == "link":
         if args.ts_code:
-            url = get_tradingview_url(args.ts_code)
-            tv_symbol = convert_to_tv_symbol(args.ts_code)
+            pos = positions_by_code.get(args.ts_code) or get_position(conn, args.ts_code)
+            exchange = pos.get("exchange") if pos else None
+            url = get_tradingview_url(args.ts_code, exchange=exchange)
+            tv_symbol = convert_to_tv_symbol(args.ts_code, exchange)
             print(f"{args.ts_code} → {tv_symbol}")
             print(f"URL: {url}")
         else:
             print("TradingView 链接:\n")
             for pos in positions:
                 ts_code = pos['ts_code']
-                tv_symbol = convert_to_tv_symbol(ts_code)
-                url = get_tradingview_url(ts_code)
+                exchange = pos.get('exchange')
+                tv_symbol = convert_to_tv_symbol(ts_code, exchange)
+                url = get_tradingview_url(ts_code, exchange=exchange)
                 print(f"  {ts_code:<12} → {tv_symbol:<15} {url}")
+
+    conn.close()
 
 
 if __name__ == "__main__":
