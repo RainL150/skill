@@ -192,7 +192,11 @@ def print_watch_detail(item: dict):
 
 def main():
     parser = argparse.ArgumentParser(description="关注列表管理工具")
-    parser.add_argument("--workspace", required=True, help="工作目录")
+    parser.add_argument(
+        "--workspace",
+        default=os.path.expanduser(os.environ.get("STJ_WORKSPACE", "~/.trade-journal")),
+        help="工作目录 (默认: STJ_WORKSPACE 或 ~/.trade-journal)",
+    )
 
     subparsers = parser.add_subparsers(dest="command", help="命令")
 

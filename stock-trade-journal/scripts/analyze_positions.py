@@ -182,7 +182,11 @@ def open_tradingview_charts(positions: list[dict[str, Any]], interval: str = "D"
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="持仓分析工具")
-    parser.add_argument("--workspace", required=True, help="工作目录")
+    parser.add_argument(
+        "--workspace",
+        default=os.path.expanduser(os.environ.get("STJ_WORKSPACE", "~/.trade-journal")),
+        help="工作目录 (默认: STJ_WORKSPACE 或 ~/.trade-journal)",
+    )
 
     subparsers = parser.add_subparsers(dest="command", help="命令")
 

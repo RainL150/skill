@@ -6,7 +6,11 @@ import sqlite3
 
 def main() -> None:
     p = argparse.ArgumentParser()
-    p.add_argument("--workspace", required=True)
+    p.add_argument(
+        "--workspace",
+        default=os.path.expanduser(os.environ.get("STJ_WORKSPACE", "~/.trade-journal")),
+        help="工作目录 (默认: STJ_WORKSPACE 或 ~/.trade-journal)",
+    )
     p.add_argument("--ts-code", required=True)
     p.add_argument("--limit", type=int, default=20)
     args = p.parse_args()

@@ -14,7 +14,11 @@ from journal_markdown import append_trade_md
 
 def main() -> None:
     p = argparse.ArgumentParser(description="记录交易并更新持仓")
-    p.add_argument("--workspace", required=True, help="工作目录")
+    p.add_argument(
+        "--workspace",
+        default=os.path.expanduser(os.environ.get("STJ_WORKSPACE", "~/.trade-journal")),
+        help="工作目录 (默认: STJ_WORKSPACE 或 ~/.trade-journal)",
+    )
     p.add_argument("--ts-code", required=True, help="股票代码 (如 603067.SH, AAPL.US)")
     p.add_argument("--side", required=True, choices=["BUY", "SELL", "buy", "sell"], help="交易方向")
     p.add_argument("--price", type=float, required=True, help="成交价格")

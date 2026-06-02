@@ -71,7 +71,11 @@ def print_position_detail(pos: dict[str, Any]) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="查询持仓信息")
-    parser.add_argument("--workspace", required=True, help="工作目录")
+    parser.add_argument(
+        "--workspace",
+        default=os.path.expanduser(os.environ.get("STJ_WORKSPACE", "~/.trade-journal")),
+        help="工作目录 (默认: STJ_WORKSPACE 或 ~/.trade-journal)",
+    )
     parser.add_argument("--ts-code", help="查询特定股票代码")
     parser.add_argument("--all", action="store_true", help="包含已清仓的股票")
     parser.add_argument("--json", action="store_true", help="JSON 格式输出")

@@ -178,7 +178,7 @@ def main():
     parser = argparse.ArgumentParser(description="持仓一键分析工具")
     parser.add_argument("--workspace",
                         default=os.path.expanduser(os.environ.get("STJ_WORKSPACE", "~/.trade-journal")),
-                        help="工作目录")
+                        help="工作目录 (默认: STJ_WORKSPACE 或 ~/.trade-journal)")
     parser.add_argument("command", nargs="?", default="menu",
                         choices=["menu", "prompt", "links", "tasks", "quick"],
                         help="命令")

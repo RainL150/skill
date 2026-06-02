@@ -232,7 +232,11 @@ def print_positions_table(positions: list[dict[str, Any]], source: str = "") -> 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="IBKR 交易记录同步工具")
-    parser.add_argument("--workspace", required=True, help="工作目录")
+    parser.add_argument(
+        "--workspace",
+        default=os.path.expanduser(os.environ.get("STJ_WORKSPACE", "~/.trade-journal")),
+        help="工作目录 (默认: STJ_WORKSPACE 或 ~/.trade-journal)",
+    )
     parser.add_argument("--host", default="127.0.0.1", help="TWS/Gateway 主机 (默认: 127.0.0.1)")
     parser.add_argument("--port", type=int, default=7497, help="TWS/Gateway 端口 (默认: 7497 Paper Trading)")
     parser.add_argument("--client-id", type=int, default=1, help="客户端 ID (默认: 1)")

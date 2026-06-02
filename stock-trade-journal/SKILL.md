@@ -215,7 +215,7 @@ python3 scripts/sync_ibkr.py --local
 
 | 参数 | 说明 | 默认值 |
 |------|------|--------|
-| `--workspace` | 工作目录 | (必填) |
+| `--workspace` | 工作目录 | `STJ_WORKSPACE` 或 `~/.trade-journal` |
 | `--port` | TWS/Gateway 端口 | 7497 |
 | `--days` | 同步最近 N 天 | 7 |
 | `--positions` | 显示 IBKR 持仓 | - |
@@ -393,7 +393,7 @@ python3 web/app.py --host 0.0.0.0
 
 | 参数 | 说明 | 默认值 |
 |------|------|--------|
-| `--workspace` | 工作目录 | (必填) |
+| `--workspace` | 工作目录 | `STJ_WORKSPACE` 或 `~/.trade-journal` |
 | `--port` | 端口号 | 5000 |
 | `--host` | 监听地址 | 127.0.0.1 |
 | `--debug` | 调试模式 | - |

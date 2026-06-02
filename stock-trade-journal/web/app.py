@@ -3,7 +3,7 @@
 交易日志 Web 界面
 
 启动方式:
-  python3 web/app.py --workspace ~/.openclaw/workspace
+  python3 web/app.py
 
 然后访问: http://localhost:5000
 """
@@ -526,7 +526,11 @@ def main():
     global DB_PATH
 
     parser = argparse.ArgumentParser(description="交易日志 Web 界面")
-    parser.add_argument("--workspace", required=True, help="工作目录")
+    parser.add_argument(
+        "--workspace",
+        default=os.path.expanduser(os.environ.get("STJ_WORKSPACE", "~/.trade-journal")),
+        help="工作目录 (默认: STJ_WORKSPACE 或 ~/.trade-journal)",
+    )
     parser.add_argument("--port", type=int, default=5000, help="端口号 (默认: 5000)")
     parser.add_argument("--host", default="127.0.0.1", help="主机 (默认: 127.0.0.1)")
     parser.add_argument("--debug", action="store_true", help="调试模式")
