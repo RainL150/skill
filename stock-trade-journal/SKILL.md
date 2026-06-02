@@ -127,7 +127,6 @@ CREATE TABLE positions (
 
 ```bash
 python3 scripts/record_trade.py \
-  --workspace ~/.openclaw/workspace \
   --ts-code AAPL.US \
   --exchange NASDAQ \
   --side BUY \
@@ -149,28 +148,28 @@ python3 scripts/record_trade.py \
 
 ```bash
 # 查看所有持仓
-python3 scripts/query_positions.py --workspace ~/.openclaw/workspace
+python3 scripts/query_positions.py
 
 # 查询特定股票
-python3 scripts/query_positions.py --workspace ~/.openclaw/workspace --ts-code AAPL.US
+python3 scripts/query_positions.py --ts-code AAPL.US
 
 # 包含已清仓股票
-python3 scripts/query_positions.py --workspace ~/.openclaw/workspace --all
+python3 scripts/query_positions.py --all
 
 # JSON 格式输出
-python3 scripts/query_positions.py --workspace ~/.openclaw/workspace --json
+python3 scripts/query_positions.py --json
 ```
 
 ### 3. 查询交易记录
 
 ```bash
-python3 scripts/query_trades.py --workspace ~/.openclaw/workspace
+python3 scripts/query_trades.py
 
 # 查询特定股票
-python3 scripts/query_trades.py --workspace ~/.openclaw/workspace --ts-code AAPL.US
+python3 scripts/query_trades.py --ts-code AAPL.US
 
 # 最近 N 条
-python3 scripts/query_trades.py --workspace ~/.openclaw/workspace --limit 20
+python3 scripts/query_trades.py --limit 20
 ```
 
 ---
@@ -200,26 +199,16 @@ python3 scripts/query_trades.py --workspace ~/.openclaw/workspace --limit 20
 
 ```bash
 # 同步交易记录 + 更新持仓
-python3 scripts/sync_ibkr.py \
-  --workspace ~/.openclaw/workspace \
-  --port 4001
+python3 scripts/sync_ibkr.py --port 4001
 
 # 同步 IBKR 持仓到本地
-python3 scripts/sync_ibkr.py \
-  --workspace ~/.openclaw/workspace \
-  --port 4001 \
-  --sync-positions
+python3 scripts/sync_ibkr.py --port 4001 --sync-positions
 
 # 只查看 IBKR 持仓（不写入）
-python3 scripts/sync_ibkr.py \
-  --workspace ~/.openclaw/workspace \
-  --port 4001 \
-  --positions --readonly
+python3 scripts/sync_ibkr.py --port 4001 --positions --readonly
 
 # 查看本地数据库持仓
-python3 scripts/sync_ibkr.py \
-  --workspace ~/.openclaw/workspace \
-  --local
+python3 scripts/sync_ibkr.py --local
 ```
 
 ### 参数说明
@@ -284,10 +273,10 @@ python3 scripts/sync_ibkr.py \
 
 ```bash
 # 基础添加
-python3 scripts/watchlist.py --workspace ~/.openclaw/workspace add NVDA.US
+python3 scripts/watchlist.py add NVDA.US
 
 # 完整参数
-python3 scripts/watchlist.py --workspace ~/.openclaw/workspace add NVDA.US \
+python3 scripts/watchlist.py add NVDA.US \
   --name "NVIDIA" \
   --category "AI芯片" \
   --target 150 \
@@ -301,41 +290,41 @@ python3 scripts/watchlist.py --workspace ~/.openclaw/workspace add NVDA.US \
 
 ```bash
 # 查看所有关注
-python3 scripts/watchlist.py --workspace ~/.openclaw/workspace ls
+python3 scripts/watchlist.py ls
 
 # 按分类筛选
-python3 scripts/watchlist.py --workspace ~/.openclaw/workspace ls -c "AI芯片"
+python3 scripts/watchlist.py ls -c "AI芯片"
 
 # JSON 格式
-python3 scripts/watchlist.py --workspace ~/.openclaw/workspace ls --json
+python3 scripts/watchlist.py ls --json
 
 # 查看单个股票
-python3 scripts/watchlist.py --workspace ~/.openclaw/workspace show NVDA.US
+python3 scripts/watchlist.py show NVDA.US
 ```
 
 ### 更新关注
 
 ```bash
 # 更新目标价
-python3 scripts/watchlist.py --workspace ~/.openclaw/workspace up NVDA.US --target 160
+python3 scripts/watchlist.py up NVDA.US --target 160
 
 # 更新状态为已买入
-python3 scripts/watchlist.py --workspace ~/.openclaw/workspace up NVDA.US --status bought
+python3 scripts/watchlist.py up NVDA.US --status bought
 
 # 更新优先级
-python3 scripts/watchlist.py --workspace ~/.openclaw/workspace up NVDA.US --priority 1
+python3 scripts/watchlist.py up NVDA.US --priority 1
 ```
 
 ### 删除关注
 
 ```bash
-python3 scripts/watchlist.py --workspace ~/.openclaw/workspace rm NVDA.US
+python3 scripts/watchlist.py rm NVDA.US
 ```
 
 ### 查看分类
 
 ```bash
-python3 scripts/watchlist.py --workspace ~/.openclaw/workspace cats
+python3 scripts/watchlist.py cats
 ```
 
 ### 参数说明
@@ -367,13 +356,12 @@ pip install flask
 
 ```bash
 # 启动 Web 服务 (默认端口 5000)
-python3 web/app.py --workspace ~/.openclaw/workspace
-
+python3 web/app.py
 # 指定端口
-python3 web/app.py --workspace ~/.openclaw/workspace --port 8080
+python3 web/app.py --port 8080
 
 # 允许局域网访问
-python3 web/app.py --workspace ~/.openclaw/workspace --host 0.0.0.0
+python3 web/app.py --host 0.0.0.0
 ```
 
 ### 访问地址
@@ -420,25 +408,25 @@ python3 web/app.py --workspace ~/.openclaw/workspace --host 0.0.0.0
 
 ```bash
 # 显示所有持仓的 TradingView 链接
-python3 scripts/analyze_positions.py --workspace ~/.openclaw/workspace link
+python3 scripts/analyze_positions.py link
 
 # 显示特定股票链接
-python3 scripts/analyze_positions.py --workspace ~/.openclaw/workspace link --ts-code AAPL.US
+python3 scripts/analyze_positions.py link --ts-code AAPL.US
 
 # 批量打开 TradingView 图表（默认 5 个）
-python3 scripts/analyze_positions.py --workspace ~/.openclaw/workspace tradingview
+python3 scripts/analyze_positions.py tradingview
 
 # 打开所有持仓图表
-python3 scripts/analyze_positions.py --workspace ~/.openclaw/workspace tv --all
+python3 scripts/analyze_positions.py tv --all
 
 # 指定时间周期 (1,5,15,30,60,240,D,W,M)
-python3 scripts/analyze_positions.py --workspace ~/.openclaw/workspace tv --interval W
+python3 scripts/analyze_positions.py tv --interval W
 
 # 生成持仓分析报告
-python3 scripts/analyze_positions.py --workspace ~/.openclaw/workspace report
+python3 scripts/analyze_positions.py report
 
 # 导出报告到文件
-python3 scripts/analyze_positions.py --workspace ~/.openclaw/workspace report -o report.md
+python3 scripts/analyze_positions.py report -o report.md
 ```
 
 ### 代码转换规则
@@ -467,7 +455,7 @@ python3 scripts/analyze_positions.py --workspace ~/.openclaw/workspace report -o
 
 ```
 # 1. 查询持仓
-python3 scripts/query_positions.py --workspace ~/.openclaw/workspace --json
+python3 scripts/query_positions.py --json
 
 # 2. 使用 tradingview-quantitative 分析（在 Claude 中）
 请分析我的持仓股票：AAPL.US, NVDA.US, 0700.HK 的技术面
