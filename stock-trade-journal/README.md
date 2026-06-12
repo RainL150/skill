@@ -11,6 +11,7 @@
 ## 目录
 - `scripts/record_trade.py`：记录单笔交易（自动建表/建文件）
 - `scripts/query_trades.py`：查询交易记录
+- `scripts/render_chart.py`：生成带交易/关注标注的本地图表
 - `templates/trade-entry.md`：Markdown 模板
 
 ## 示例
@@ -22,4 +23,10 @@ python3 scripts/record_trade.py \
 
 python3 scripts/query_trades.py \
   --ts-code 603067.SH --limit 20
+
+python3 scripts/render_chart.py RDDT.US
 ```
+
+图表默认输出到 `~/.trade-journal/results/trade-journal/charts/<代码>.html`。
+脚本会为 A 股从东方财富获取 OHLC 数据，其他市场默认走 Yahoo chart API，并自动挂载本地 `trades`、`positions`、`watchlist` 记录。
+如已有价格数据，可用 `--price-json path/to/ohlc.json` 跳过网络拉取。

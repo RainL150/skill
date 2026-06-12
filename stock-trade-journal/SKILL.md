@@ -13,7 +13,7 @@ when: |
   - "同步IBKR" "同步盈透"
   - "查询持仓" "持仓盈亏" "我的持仓"
   - "关注 XXX" "加入关注" "关注列表"
-  - "分析持仓" "TradingView"
+  - "分析持仓" "TradingView" "看图" "打开图表"
   - 或直接使用 /stj 命令
 examples:
   - "/stj 记录：NVDA.US 在130买入100股"
@@ -48,6 +48,7 @@ metadata:
 | `/stj 关注` | 添加关注 | `/stj 关注 AVGO.US --target 200` |
 | `/stj 关注列表` | 查看关注 | `/stj 关注列表` |
 | `/stj 分析` | TradingView分析 | `/stj 分析` |
+| `/stj 看图` | 生成带交易/关注标注的本地图表 | `/stj 看图 RDDT.US` |
 | `/stj 同步` | 同步IBKR | `/stj 同步IBKR` |
 | `/stj web` | 启动Web界面 | `/stj web` |
 
@@ -259,6 +260,7 @@ python3 scripts/sync_ibkr.py --local
 | `query_trades.py` | 查询交易记录 |
 | `query_positions.py` | 查询持仓 |
 | `watchlist.py` | 关注列表管理 |
+| `render_chart.py` | 生成带交易/关注标注的本地 ECharts 图表 |
 | `analyze_positions.py` | TradingView 分析 |
 | `sync_ibkr.py` | IBKR API 同步 |
 | `web/app.py` | Web 可视化界面 |
@@ -444,6 +446,34 @@ python3 scripts/analyze_positions.py report -o report.md
 - 🌍 按市场分布统计
 - 📈 持仓详情表格（含 TradingView 链接）
 - 🔗 快捷链接汇总
+
+---
+
+## 本地标注图表
+
+当用户说“看图”“打开图表”“给我 RDDT 的图”等需求时，优先生成本地 HTML 图表：
+
+```bash
+python3 scripts/render_chart.py RDDT.US
+
+# 指定区间和默认图表类型
+python3 scripts/render_chart.py RDDT.US --period 1y --chart-type candlestick
+
+# 使用本地 OHLC JSON，跳过网络拉取
+python3 scripts/render_chart.py RDDT.US --price-json prices.json
+```
+
+输出路径默认是：
+
+```
+~/.trade-journal/results/trade-journal/charts/<代码>.html
+```
+
+图表模板来自 `templates/stock-chart.html`，抽取自 `baijuyi_fe` 的 ECharts stock chart 组件。生成时会自动读取本地数据库：
+
+- `trades`：BUY/SELL 交易会贴近最近一根 K 线，显示为 B/S 标记
+- `positions`：持仓均价会显示为水平线
+- `watchlist`：目标价和止损价会显示为水平线，关注原因显示在详情区
 
 ---
 
