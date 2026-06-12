@@ -5,6 +5,8 @@
 表结构：
 1. trades - 交易记录表
 2. positions - 持仓表（与交易联动）
+3. watchlist - 关注列表
+4. watch_notes - 关注记录/观察笔记
 """
 
 import os
@@ -99,6 +101,19 @@ def ensure_db(db_path: str) -> sqlite3.Connection:
         )
     """)
 
+    # 关注记录表：没有买卖行为，只记录观察笔记
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS watch_notes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts_code TEXT NOT NULL,
+            exchange TEXT,
+            note TEXT NOT NULL,
+            timestamp TEXT NOT NULL,
+            source TEXT DEFAULT 'manual',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
     # 创建索引
     conn.execute("CREATE INDEX IF NOT EXISTS idx_trades_ts_code ON trades(ts_code)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(timestamp)")
@@ -106,6 +121,8 @@ def ensure_db(db_path: str) -> sqlite3.Connection:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_snapshots_date ON position_snapshots(snapshot_date)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_watchlist_ts_code ON watchlist(ts_code)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_watchlist_category ON watchlist(category)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_watch_notes_ts_code ON watch_notes(ts_code)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_watch_notes_timestamp ON watch_notes(timestamp)")
 
     conn.commit()
 

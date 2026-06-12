@@ -46,6 +46,7 @@ metadata:
 | `/stj 记录` | 记录交易 | `/stj 记录 NVDA.US 买入100股@130` |
 | `/stj 持仓` | 查看持仓 | `/stj 持仓` 或 `/stj 持仓 NVDA.US` |
 | `/stj 关注` | 添加关注 | `/stj 关注 AVGO.US --target 200` |
+| `/stj 关注记录` | 添加观察笔记 | `/stj 关注记录 0700.HK 买入观望` |
 | `/stj 关注列表` | 查看关注 | `/stj 关注列表` |
 | `/stj 分析` | TradingView分析 | `/stj 分析` |
 | `/stj 看图` | 生成带交易/关注标注的本地图表 | `/stj 看图 RDDT.US` |
@@ -459,6 +460,10 @@ python3 scripts/render_chart.py RDDT.US
 # 指定区间和默认图表类型
 python3 scripts/render_chart.py RDDT.US --period 1y --chart-type candlestick
 
+# 支持近一周、一个月、半年、一年、三年、交易以来
+python3 scripts/render_chart.py RDDT.US --period 1w
+python3 scripts/render_chart.py RDDT.US --period 交易以来
+
 # 使用本地 OHLC JSON，跳过网络拉取
 python3 scripts/render_chart.py RDDT.US --price-json prices.json
 ```
@@ -469,11 +474,22 @@ python3 scripts/render_chart.py RDDT.US --price-json prices.json
 ~/.trade-journal/results/trade-journal/charts/<代码>.html
 ```
 
+每次生成也会同步更新固定入口：
+
+```
+~/.trade-journal/results/trade-journal/charts/latest.html
+```
+
+这个文件会自动装载最近一次生成结果，适合固定收藏或让 `/stj 看图` 每次打开同一个入口。
+
 图表模板来自 `templates/stock-chart.html`，抽取自 `baijuyi_fe` 的 ECharts stock chart 组件。生成时会自动读取本地数据库：
 
 - `trades`：BUY/SELL 交易会贴近最近一根 K 线，显示为 B/S 标记
+- `trades` 笔记：交易原因、止损/止盈触发条件、备注会合并展示；“截图导入”等来源信息不作为笔记
 - `positions`：持仓均价会显示为水平线
-- `watchlist`：目标价和止损价会显示为水平线，关注原因显示在详情区
+- `positions` + 最新收盘价：自动计算市值、总体浮盈和收益率
+- `watchlist`：关注列表只管理标的状态、分类、目标价、止损价等
+- `watch_notes`：关注记录是无买卖行为的观察笔记，会按日期挂到图上并支持 hover
 
 ---
 

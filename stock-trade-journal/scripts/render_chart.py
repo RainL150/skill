@@ -19,21 +19,45 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from db_schema import parse_ts_code
+from db_schema import ensure_db, parse_ts_code
 
 
 RANGE_TO_INTERVAL = {
     "1d": "1m",
     "5d": "1h",
+    "1w": "1d",
     "1mo": "1d",
     "3mo": "1d",
     "6mo": "1d",
     "1y": "1d",
     "2y": "1d",
+    "3y": "1d",
     "5y": "1wk",
     "10y": "1wk",
     "ytd": "1d",
     "max": "1wk",
+    "trade": "1d",
+}
+
+PERIOD_ALIASES = {
+    "week": "1w",
+    "1week": "1w",
+    "近一周": "1w",
+    "一周": "1w",
+    "一个月": "1mo",
+    "近一个月": "1mo",
+    "近一月": "1mo",
+    "一月": "1mo",
+    "半年": "6mo",
+    "近半年": "6mo",
+    "一年": "1y",
+    "近一年": "1y",
+    "三年": "3y",
+    "近三年": "3y",
+    "交易以来": "trade",
+    "持仓以来": "trade",
+    "since-trade": "trade",
+    "since_trade": "trade",
 }
 
 
@@ -48,6 +72,10 @@ def db_path_for(workspace: str) -> str:
 def output_path_for(workspace: str, ts_code: str) -> str:
     safe_name = ts_code.replace("/", "_").replace(":", "_")
     return os.path.join(workspace, "results", "trade-journal", "charts", f"{safe_name}.html")
+
+
+def latest_path_for(workspace: str) -> str:
+    return os.path.join(workspace, "results", "trade-journal", "charts", "latest.html")
 
 
 def template_path() -> Path:
@@ -65,6 +93,15 @@ def copy_chart_assets(output: str) -> None:
     assets_dir = Path(output).resolve().parent / "assets"
     assets_dir.mkdir(parents=True, exist_ok=True)
     shutil.copy2(src, assets_dir / "echarts.min.js")
+
+
+def normalize_period(period: str) -> str:
+    value = period.strip()
+    normalized = PERIOD_ALIASES.get(value.lower(), PERIOD_ALIASES.get(value, value))
+    if normalized not in RANGE_TO_INTERVAL:
+        allowed = ", ".join(sorted(RANGE_TO_INTERVAL))
+        raise RuntimeError(f"不支持的时间范围: {period}，可选: {allowed}")
+    return normalized
 
 
 def to_yahoo_symbol(ts_code: str, exchange: str | None = None) -> str:
@@ -103,16 +140,19 @@ def parse_timestamp(value: str | None) -> str:
         return value
 
 
-def fetch_yahoo_ohlc(yf_symbol: str, period: str, interval: str) -> list[dict[str, Any]]:
+def fetch_yahoo_ohlc(yf_symbol: str, period: str, interval: str, start: datetime | None = None) -> list[dict[str, Any]]:
     encoded = urllib.parse.quote(yf_symbol, safe="")
-    query = urllib.parse.urlencode(
-        {
-            "range": period,
-            "interval": interval,
-            "events": "history",
-            "includeAdjustedClose": "true",
-        }
-    )
+    query_params = {
+        "interval": interval,
+        "events": "history",
+        "includeAdjustedClose": "true",
+    }
+    if start:
+        query_params["period1"] = str(int(start.astimezone(timezone.utc).timestamp()))
+        query_params["period2"] = str(int(datetime.now(timezone.utc).timestamp()))
+    else:
+        query_params["range"] = period
+    query = urllib.parse.urlencode(query_params)
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{encoded}?{query}"
     request = urllib.request.Request(
         url,
@@ -159,23 +199,53 @@ def fetch_yahoo_ohlc(yf_symbol: str, period: str, interval: str) -> list[dict[st
     return records
 
 
-def period_begin(period: str) -> str:
+def period_begin(period: str, start: datetime | None = None) -> str:
+    if start:
+        return start.strftime("%Y%m%d")
     if period == "max":
         return "19900101"
     now = datetime.now()
     days = {
         "1d": 3,
         "5d": 10,
+        "1w": 10,
         "1mo": 35,
         "3mo": 100,
         "6mo": 190,
         "1y": 370,
         "2y": 740,
+        "3y": 1110,
         "5y": 1850,
         "10y": 3700,
         "ytd": max(1, (now - datetime(now.year, 1, 1)).days + 5),
+        "trade": 370,
     }.get(period, 190)
     return (now - timedelta(days=days)).strftime("%Y%m%d")
+
+
+def period_start(period: str, local: dict[str, Any]) -> datetime | None:
+    now = datetime.now(timezone.utc)
+    days = {
+        "1w": 10,
+        "3y": 1110,
+    }
+    if period in days:
+        return now - timedelta(days=days[period])
+    if period == "trade":
+        timestamps = [trade.get("timestamp") for trade in local.get("trades", []) if trade.get("timestamp")]
+        parsed: list[datetime] = []
+        for value in timestamps:
+            try:
+                dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                parsed.append(dt.astimezone(timezone.utc))
+            except ValueError:
+                continue
+        if parsed:
+            return min(parsed) - timedelta(days=5)
+        return now - timedelta(days=370)
+    return None
 
 
 def eastmoney_klt(interval: str) -> str:
@@ -192,14 +262,16 @@ def eastmoney_klt(interval: str) -> str:
     }.get(interval, "101")
 
 
-def fetch_eastmoney_ohlc(ts_code: str, period: str, interval: str) -> list[dict[str, Any]]:
+def fetch_eastmoney_ohlc(ts_code: str, period: str, interval: str, start: datetime | None = None) -> list[dict[str, Any]]:
     symbol, market, _ = parse_ts_code(ts_code)
     if market == "SZ":
         secid = f"0.{symbol}"
     elif market == "SH":
         secid = f"1.{symbol}"
+    elif market == "HK":
+        secid = f"116.{symbol.zfill(5)}"
     else:
-        raise RuntimeError(f"东方财富仅支持 A 股 SH/SZ，当前代码: {ts_code}")
+        raise RuntimeError(f"东方财富仅支持 A 股 SH/SZ 和港股 HK，当前代码: {ts_code}")
 
     query = urllib.parse.urlencode(
         {
@@ -208,7 +280,7 @@ def fetch_eastmoney_ohlc(ts_code: str, period: str, interval: str) -> list[dict[
             "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61",
             "klt": eastmoney_klt(interval),
             "fqt": "1",
-            "beg": period_begin(period),
+            "beg": period_begin(period, start),
             "end": datetime.now().strftime("%Y%m%d"),
         }
     )
@@ -260,13 +332,51 @@ def row_to_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
+def clean_note_part(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    lowered = text.lower()
+    import_markers = ("截图导入", "导入截图", "source_images=", "raw_code=")
+    if any(marker in lowered for marker in import_markers) or "导入" in text:
+        pieces = []
+        for piece in text.split(";"):
+            item = piece.strip()
+            item_lower = item.lower()
+            if not item:
+                continue
+            if item_lower.startswith(("source_images=", "raw_code=", "name=", "source=")):
+                continue
+            if "截图导入" in item or "导入" in item:
+                continue
+            pieces.append(item)
+        return "；".join(pieces)
+    return text
+
+
+def combine_trade_memo(reason: Any, note: Any, stop_loss: Any = None, take_profit: Any = None) -> str:
+    parts = [clean_note_part(reason)]
+    triggers = []
+    if stop_loss not in (None, ""):
+        triggers.append(f"止损 {stop_loss}")
+    if take_profit not in (None, ""):
+        triggers.append(f"止盈 {take_profit}")
+    if triggers:
+        parts.append("；".join(triggers))
+    parts.append(clean_note_part(note))
+    return "；".join(part for part in parts if part)
+
+
+def combine_watch_memo(reason: Any, note: Any) -> str:
+    return "；".join(part for part in (clean_note_part(reason), clean_note_part(note)) if part)
+
+
 def load_local_context(db_path: str, ts_code: str) -> dict[str, Any]:
-    context: dict[str, Any] = {"position": None, "trades": [], "watch": None}
+    context: dict[str, Any] = {"position": None, "trades": [], "watch": None, "watchNotes": []}
     if not os.path.exists(db_path):
         return context
 
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+    conn = ensure_db(db_path)
     try:
         pos = row_to_dict(conn.execute("SELECT * FROM positions WHERE ts_code = ?", (ts_code,)).fetchone())
         if pos:
@@ -281,7 +391,7 @@ def load_local_context(db_path: str, ts_code: str) -> dict[str, Any]:
 
         trade_rows = conn.execute(
             """
-            SELECT timestamp, side, price, quantity, reason, note, source, position_after
+            SELECT timestamp, side, price, quantity, reason, stop_loss, take_profit, note, source, position_after
             FROM trades
             WHERE ts_code = ?
             ORDER BY timestamp ASC, id ASC
@@ -295,7 +405,10 @@ def load_local_context(db_path: str, ts_code: str) -> dict[str, Any]:
                 "price": row["price"],
                 "quantity": row["quantity"],
                 "reason": row["reason"] or "",
+                "stopLoss": row["stop_loss"],
+                "takeProfit": row["take_profit"] or "",
                 "note": row["note"] or "",
+                "memo": combine_trade_memo(row["reason"], row["note"], row["stop_loss"], row["take_profit"]),
                 "source": row["source"] or "",
                 "positionAfter": row["position_after"],
             }
@@ -318,9 +431,29 @@ def load_local_context(db_path: str, ts_code: str) -> dict[str, Any]:
                 "priority": watch["priority"],
                 "status": watch["status"],
                 "note": watch["note"],
+                "memo": combine_watch_memo(watch["reason"], watch["note"]),
                 "addedAt": parse_timestamp(watch["added_at"]),
                 "updatedAt": parse_timestamp(watch["updated_at"]),
             }
+
+        note_rows = conn.execute(
+            """
+            SELECT timestamp, note, source
+            FROM watch_notes
+            WHERE ts_code = ?
+            ORDER BY timestamp ASC, id ASC
+            """,
+            (ts_code,),
+        ).fetchall()
+        context["watchNotes"] = [
+            {
+                "timestamp": parse_timestamp(row["timestamp"]),
+                "note": clean_note_part(row["note"]),
+                "source": row["source"] or "",
+            }
+            for row in note_rows
+            if clean_note_part(row["note"])
+        ]
     finally:
         conn.close()
     return context
@@ -334,37 +467,66 @@ def render_html(payload: dict[str, Any]) -> str:
     )
 
 
+def enrich_position_metrics(payload: dict[str, Any]) -> None:
+    records = payload.get("ohlc") or []
+    position = payload.get("position") or {}
+    last = records[-1].get("close") if records else None
+    quantity = float(position.get("quantity") or 0)
+    avg_cost = position.get("avgCost")
+    metrics = {
+        "lastPrice": last,
+        "marketValue": None,
+        "unrealizedPnl": None,
+        "unrealizedPnlPct": None,
+    }
+    if last is not None and quantity and avg_cost:
+        avg = float(avg_cost)
+        metrics["marketValue"] = float(last) * quantity
+        metrics["unrealizedPnl"] = (float(last) - avg) * quantity
+        metrics["unrealizedPnlPct"] = (float(last) / avg - 1) * 100 if avg else None
+    payload["metrics"] = metrics
+
+
+def write_html(output: str, payload: dict[str, Any]) -> None:
+    os.makedirs(os.path.dirname(output), exist_ok=True)
+    with open(output, "w", encoding="utf-8") as f:
+        f.write(render_html(payload))
+    copy_chart_assets(output)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="生成带交易/关注标注的股票图表 HTML")
     parser.add_argument("ts_code", help="股票代码，如 AAPL.US, 0700.HK, 600519.SH")
     parser.add_argument("--workspace", default=default_workspace(), help="工作目录 (默认: STJ_WORKSPACE 或 ~/.trade-journal)")
-    parser.add_argument("--period", default="6mo", choices=sorted(RANGE_TO_INTERVAL.keys()), help="价格区间")
+    parser.add_argument("--period", default="6mo", help="价格区间: 1w/1mo/6mo/1y/3y/trade/交易以来 等")
     parser.add_argument("--interval", help="价格间隔，默认按 period 自动选择")
     parser.add_argument("--chart-type", default="area", choices=["area", "candlestick"], help="默认图表类型")
     parser.add_argument("--price-json", help="使用本地 OHLC JSON，跳过网络拉取")
     parser.add_argument("--output", "-o", help="输出 HTML 路径")
+    parser.add_argument("--no-latest", action="store_true", help="不更新 charts/latest.html 固定入口")
     parser.add_argument("--name", default="", help="图表显示名称")
     args = parser.parse_args()
 
     workspace = os.path.expanduser(args.workspace)
-    interval = args.interval or RANGE_TO_INTERVAL[args.period]
+    period = normalize_period(args.period)
+    interval = args.interval or RANGE_TO_INTERVAL[period]
     db_path = db_path_for(workspace)
     local = load_local_context(db_path, args.ts_code)
+    start = period_start(period, local)
 
     symbol, market, fallback_exchange = parse_ts_code(args.ts_code)
     exchange = (local["position"] or {}).get("exchange") or fallback_exchange or market
     yf_symbol = to_yahoo_symbol(args.ts_code, exchange)
     if args.price_json:
         ohlc = load_ohlc_json(args.price_json)
-    elif market in {"SH", "SZ"}:
-        ohlc = fetch_eastmoney_ohlc(args.ts_code, args.period, interval)
+    elif market in {"SH", "SZ", "HK"}:
+        ohlc = fetch_eastmoney_ohlc(args.ts_code, period, interval, start)
     else:
-        ohlc = fetch_yahoo_ohlc(yf_symbol, args.period, interval)
+        ohlc = fetch_yahoo_ohlc(yf_symbol, period, interval, start)
     if not ohlc:
         raise RuntimeError("没有可绘制的价格数据")
 
     output = os.path.expanduser(args.output or output_path_for(workspace, args.ts_code))
-    os.makedirs(os.path.dirname(output), exist_ok=True)
 
     payload = {
         "tsCode": args.ts_code,
@@ -372,7 +534,7 @@ def main() -> int:
         "exchange": exchange,
         "yfSymbol": yf_symbol,
         "name": args.name or (local["watch"] or {}).get("name") or symbol,
-        "period": args.period,
+        "period": period,
         "interval": interval,
         "chartType": args.chart_type,
         "generatedAt": datetime.now().astimezone().isoformat(timespec="seconds"),
@@ -380,11 +542,15 @@ def main() -> int:
         "position": local["position"] or {"exchange": exchange, "quantity": 0, "avgCost": None, "totalCost": None, "realizedPnl": None, "currency": None},
         "trades": local["trades"],
         "watch": local["watch"],
+        "watchNotes": local["watchNotes"],
     }
+    enrich_position_metrics(payload)
 
-    with open(output, "w", encoding="utf-8") as f:
-        f.write(render_html(payload))
-    copy_chart_assets(output)
+    write_html(output, payload)
+    if not args.no_latest:
+        latest = latest_path_for(workspace)
+        if Path(output).resolve() != Path(latest).resolve():
+            write_html(latest, payload)
 
     print(output)
     return 0

@@ -113,6 +113,14 @@
       padding: 5px 10px;
       background: #ffffff;
     }
+    .pill.positive {
+      border-color: rgba(38, 166, 154, 0.28);
+      background: rgba(38, 166, 154, 0.08);
+    }
+    .pill.negative {
+      border-color: rgba(239, 83, 80, 0.28);
+      background: rgba(239, 83, 80, 0.08);
+    }
     #chart {
       width: 100%;
       height: 560px;
@@ -203,9 +211,9 @@
           <div id="trades"></div>
         </section>
         <section class="section">
-          <h2>关注记录</h2>
+          <h2>关注</h2>
           <div id="watch"></div>
-          <div class="note">目标价和止损价会作为水平线挂到图上；交易记录会按日期贴近最近一根 K 线。</div>
+          <div class="note">观察笔记会按时间挂到图上，不包含买卖行为。</div>
         </section>
       </div>
     </div>
@@ -221,6 +229,16 @@
       if (value === null || value === undefined || Number.isNaN(Number(value))) return "-";
       return Number(value).toFixed(3);
     };
+    const signedMoney = (value) => {
+      if (value === null || value === undefined || Number.isNaN(Number(value))) return "-";
+      const num = Number(value);
+      return `${num >= 0 ? "+" : ""}${num.toFixed(2)}`;
+    };
+    const signedPct = (value) => {
+      if (value === null || value === undefined || Number.isNaN(Number(value))) return "-";
+      const num = Number(value);
+      return `${num >= 0 ? "+" : ""}${num.toFixed(2)}%`;
+    };
     const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({
       "&": "&amp;",
       "<": "&lt;",
@@ -228,7 +246,16 @@
       '"': "&quot;",
       "'": "&#39;",
     }[char]));
-    const day = (value) => new Date(value).toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" });
+    const axisDate = (value, daySpan) => {
+      const date = new Date(value);
+      if (daySpan > 60) {
+        return date.toLocaleDateString("zh-CN", { year: "2-digit", month: "2-digit", day: "2-digit" });
+      }
+      return date.toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" });
+    };
+    const tooltipDate = (value) => new Date(value).toLocaleDateString("zh-CN", {
+      year: "numeric", month: "2-digit", day: "2-digit"
+    });
     const fullDate = (value) => new Date(value).toLocaleString("zh-CN", {
       year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit"
     });
@@ -251,24 +278,32 @@
 
     function renderHeader() {
       const records = payload.ohlc || [];
-      const first = records[0]?.close ?? records[0]?.open ?? 0;
       const last = records[records.length - 1]?.close ?? records[records.length - 1]?.open ?? 0;
-      const diff = last - first;
-      const pct = first ? diff / first * 100 : 0;
-      const cls = diff >= 0 ? "positive" : "negative";
       document.getElementById("title").textContent = `${payload.name || payload.tsCode} ${payload.tsCode}`;
       document.getElementById("meta").textContent = `${payload.exchange || "-"} · ${payload.yfSymbol || ""} · ${payload.period || ""}/${payload.interval || ""} · ${records.length} bars · ${payload.generatedAt}`;
       document.getElementById("lastPrice").textContent = money(last);
+      const pnl = payload.metrics?.unrealizedPnl;
+      const pnlPct = payload.metrics?.unrealizedPnlPct;
+      const pnlCls = Number(pnl || 0) >= 0 ? "positive" : "negative";
       const change = document.getElementById("change");
-      change.className = `change ${cls}`;
-      change.textContent = `${diff >= 0 ? "+" : ""}${money(diff)} (${diff >= 0 ? "+" : ""}${pct.toFixed(2)}%)`;
+      if (pnl === null || pnl === undefined || pnlPct === null || pnlPct === undefined) {
+        change.className = "change";
+        change.textContent = "未持仓";
+      } else {
+        change.className = `change ${pnlCls}`;
+        change.textContent = `${signedMoney(pnl)} (${signedPct(pnlPct)})`;
+      }
       const stats = [
-        `持仓 ${payload.position?.quantity ?? 0}`,
-        `均价 ${money(payload.position?.avgCost)}`,
-        `交易 ${payload.trades.length}`,
-        `关注 ${payload.watch ? 1 : 0}`,
+        { text: `持仓 ${payload.position?.quantity ?? 0}` },
+        { text: `均价 ${money(payload.position?.avgCost)}` },
+        { text: `市值 ${money(payload.metrics?.marketValue)}` },
+        { text: `浮盈 ${signedMoney(pnl)}`, cls: pnl === null || pnl === undefined ? "" : pnlCls },
+        { text: `收益 ${signedPct(pnlPct)}`, cls: pnlPct === null || pnlPct === undefined ? "" : pnlCls },
+        { text: `交易 ${payload.trades.length}` },
+        { text: `关注 ${payload.watch ? 1 : 0}` },
+        { text: `关注记录 ${payload.watchNotes?.length ?? 0}` },
       ];
-      document.getElementById("stats").innerHTML = stats.map(item => `<span class="pill">${item}</span>`).join("");
+      document.getElementById("stats").innerHTML = stats.map(item => `<span class="pill ${item.cls || ""}">${escapeHtml(item.text)}</span>`).join("");
     }
 
     function renderTables() {
@@ -278,7 +313,7 @@
       } else {
         tradesEl.innerHTML = `
           <table>
-            <thead><tr><th>时间</th><th>方向</th><th class="num">价格</th><th class="num">数量</th><th>原因</th></tr></thead>
+            <thead><tr><th>时间</th><th>方向</th><th class="num">价格</th><th class="num">数量</th><th>笔记</th></tr></thead>
             <tbody>
               ${payload.trades.slice().reverse().map(t => `
                 <tr>
@@ -286,30 +321,75 @@
                   <td class="${t.side === "BUY" ? "positive" : "negative"}">${t.side}</td>
                   <td class="num">${money(t.price)}</td>
                   <td class="num">${escapeHtml(t.quantity)}</td>
-                  <td>${escapeHtml(t.reason || t.note || "-")}</td>
+                  <td>${escapeHtml(t.memo || "-")}</td>
                 </tr>
               `).join("")}
             </tbody>
           </table>`;
       }
       const watchEl = document.getElementById("watch");
-      if (!payload.watch) {
-        watchEl.innerHTML = '<div class="empty">暂无关注记录</div>';
-      } else {
-        const w = payload.watch;
-        watchEl.innerHTML = `
-          <table>
-            <tbody>
-              <tr><th>名称</th><td>${escapeHtml(w.name || "-")}</td></tr>
-              <tr><th>分类</th><td>${escapeHtml(w.category || "-")}</td></tr>
-              <tr><th>目标价</th><td class="num">${money(w.targetPrice)}</td></tr>
-              <tr><th>止损价</th><td class="num">${money(w.stopLoss)}</td></tr>
-              <tr><th>优先级</th><td>${escapeHtml(w.priority ?? 0)}</td></tr>
-              <tr><th>原因</th><td>${escapeHtml(w.reason || "-")}</td></tr>
-              <tr><th>备注</th><td>${escapeHtml(w.note || "-")}</td></tr>
-            </tbody>
-          </table>`;
-      }
+      const notes = payload.watchNotes || [];
+      const notesHtml = notes.length ? `
+        <h2 style="margin-top:0;">关注记录</h2>
+        <table>
+          <thead><tr><th>时间</th><th>笔记</th></tr></thead>
+          <tbody>
+            ${notes.slice().reverse().map(item => `
+              <tr>
+                <td>${escapeHtml(fullDate(item.timestamp))}</td>
+                <td>${escapeHtml(item.note || "-")}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      ` : '<h2 style="margin-top:0;">关注记录</h2><div class="empty">暂无关注记录</div>';
+      watchEl.innerHTML = notesHtml;
+    }
+
+    function tradeTooltipRows(trades) {
+      if (!trades?.length) return "";
+      return `
+        <div style="height:1px;background:#eceff3;margin:8px 0;"></div>
+        <div style="font-weight:700;margin-bottom:6px;">交易笔记</div>
+        ${trades.map(t => {
+          const source = t.source ? ` · ${t.source}` : "";
+          return `
+            <div style="margin:7px 0 0;">
+              <div><strong>${escapeHtml(t.side)}</strong> ${escapeHtml(t.quantity)} @ <strong>${money(t.price)}</strong>${escapeHtml(source)}</div>
+              <div style="color:#6b7280;">时间：${escapeHtml(fullDate(t.timestamp))}</div>
+              ${t.memo ? `<div style="color:#6b7280;">笔记：${escapeHtml(t.memo)}</div>` : ""}
+            </div>`;
+        }).join("")}
+      `;
+    }
+
+    function watchTooltipRows(lastPrice) {
+      if (!payload.watch) return "";
+      const w = payload.watch;
+      const rows = [];
+      if (w.targetPrice) rows.push(`目标价 ${money(w.targetPrice)}，距现价 ${signedPct((lastPrice / Number(w.targetPrice) - 1) * 100)}`);
+      if (w.stopLoss) rows.push(`止损价 ${money(w.stopLoss)}，距现价 ${signedPct((lastPrice / Number(w.stopLoss) - 1) * 100)}`);
+      if (!rows.length && !w.memo) return "";
+      return `
+        <div style="height:1px;background:#eceff3;margin:8px 0;"></div>
+        <div style="font-weight:700;margin-bottom:6px;">关注触发</div>
+        ${rows.map(row => `<div>${escapeHtml(row)}</div>`).join("")}
+        ${w.memo ? `<div style="color:#6b7280;margin-top:4px;">笔记：${escapeHtml(w.memo)}</div>` : ""}
+      `;
+    }
+
+    function watchNoteTooltipRows(notes) {
+      if (!notes?.length) return "";
+      return `
+        <div style="height:1px;background:#eceff3;margin:8px 0;"></div>
+        <div style="font-weight:700;margin-bottom:6px;">关注记录</div>
+        ${notes.map(item => `
+          <div style="margin:7px 0 0;">
+            <div style="color:#6b7280;">时间：${escapeHtml(fullDate(item.timestamp))}</div>
+            <div>${escapeHtml(item.note || "-")}</div>
+          </div>
+        `).join("")}
+      `;
     }
 
     function buildOption() {
@@ -317,13 +397,7 @@
       const startTime = records[0] ? new Date(records[0].date).getTime() : 0;
       const endTime = records[records.length - 1] ? new Date(records[records.length - 1].date).getTime() : 0;
       const daySpan = Math.round((endTime - startTime) / 86400000);
-      const categories = records.map(r => {
-        const d = new Date(r.date);
-        if (daySpan > 370) {
-          return d.toLocaleDateString("zh-CN", { year: "2-digit", month: "2-digit", day: "2-digit" });
-        }
-        return day(r.date);
-      });
+      const categories = records.map(r => axisDate(r.date, daySpan));
       const timestamps = records.map(r => Math.floor(new Date(r.date).getTime() / 1000));
       const candle = records.map(r => [r.open, r.close, r.low, r.high]);
       const line = records.map(r => r.close);
@@ -344,6 +418,13 @@
         if (!grouped.has(idx)) grouped.set(idx, []);
         grouped.get(idx).push(trade);
       }
+      const watchNoteGrouped = new Map();
+      for (const item of payload.watchNotes || []) {
+        const idx = closestIndex(Math.floor(new Date(item.timestamp).getTime() / 1000), timestamps);
+        if (idx < 0) continue;
+        if (!watchNoteGrouped.has(idx)) watchNoteGrouped.set(idx, []);
+        watchNoteGrouped.get(idx).push(item);
+      }
       const markPoints = [];
       for (const [idx, trades] of grouped.entries()) {
         const hasBuy = trades.some(t => t.side === "BUY");
@@ -362,12 +443,36 @@
           itemStyle: { color, borderColor: "#fff", borderWidth: 2, shadowBlur: 6, shadowColor: "rgba(0,0,0,0.25)" },
           label: { show: true, formatter: type === "buy" ? "B" : type === "sell" ? "S" : "T", color: "#fff", fontSize: 10, fontWeight: "bold" },
           tooltip: {
-            formatter: () => trades.map(t => `${fullDate(t.timestamp)}<br/>${t.side} ${t.quantity} @ ${money(t.price)}<br/>${t.reason || t.note || ""}`).join("<hr/>")
+            formatter: () => `<div style="min-width:220px;">${tradeTooltipRows(trades)}</div>`
+          }
+        });
+      }
+      for (const [idx, notes] of watchNoteGrouped.entries()) {
+        const point = records[idx];
+        markPoints.push({
+          name: "watch-note",
+          xAxis: categories[idx],
+          yAxis: point.close,
+          value: notes.length,
+          symbol: "diamond",
+          symbolSize: 24,
+          symbolOffset: [0, -24],
+          itemStyle: { color: "#f59e0b", borderColor: "#fff", borderWidth: 2, shadowBlur: 6, shadowColor: "rgba(0,0,0,0.22)" },
+          label: { show: true, formatter: "记", color: "#fff", fontSize: 10, fontWeight: "bold" },
+          tooltip: {
+            formatter: () => `<div style="min-width:220px;">${watchNoteTooltipRows(notes)}</div>`
           }
         });
       }
 
       const markLines = [];
+      if (last > 0) {
+        markLines.push({
+          yAxis: last,
+          lineStyle: { color: lineColor, type: "solid", width: 1.2 },
+          label: { formatter: `现${money(last)}`, color: "#fff", backgroundColor: lineColor, borderRadius: 3, padding: [3, 6] }
+        });
+      }
       if (avgCost > 0 && avgCost >= min - range * 0.5 && avgCost <= max + range * 0.5) {
         markLines.push({
           yAxis: avgCost,
@@ -415,6 +520,31 @@
       };
       mainSeries.markPoint = markPoints.length ? { data: markPoints, animation: false } : undefined;
 
+      const tooltipFormatter = (params) => {
+        const items = Array.isArray(params) ? params : [params];
+        const idx = items.find(item => item?.dataIndex !== undefined)?.dataIndex ?? 0;
+        const record = records[idx];
+        if (!record) return "";
+        const trades = grouped.get(idx) || [];
+        const watchNotes = watchNoteGrouped.get(idx) || [];
+        const header = `<div style="font-weight:700;font-size:13px;margin-bottom:6px;">${escapeHtml(tooltipDate(record.date))}</div>`;
+        const priceRows = chartType === "candlestick" ? `
+          <div style="display:grid;grid-template-columns:auto auto;gap:4px 18px;">
+            <span style="color:#6b7280;">开盘</span><strong style="text-align:right;">${money(record.open)}</strong>
+            <span style="color:#6b7280;">收盘</span><strong style="text-align:right;">${money(record.close)}</strong>
+            <span style="color:#6b7280;">最低</span><strong style="text-align:right;">${money(record.low)}</strong>
+            <span style="color:#6b7280;">最高</span><strong style="text-align:right;">${money(record.high)}</strong>
+            <span style="color:#6b7280;">成交量</span><strong style="text-align:right;">${escapeHtml(record.volume ?? "-")}</strong>
+          </div>
+        ` : `
+          <div style="display:grid;grid-template-columns:auto auto;gap:4px 18px;">
+            <span style="color:#6b7280;">收盘</span><strong style="text-align:right;">${money(record.close)}</strong>
+            <span style="color:#6b7280;">成交量</span><strong style="text-align:right;">${escapeHtml(record.volume ?? "-")}</strong>
+          </div>
+        `;
+        return `<div style="min-width:230px;max-width:320px;">${header}${priceRows}${tradeTooltipRows(trades)}${watchNoteTooltipRows(watchNotes)}${watchTooltipRows(record.close)}</div>`;
+      };
+
       return {
         animation: false,
         backgroundColor: "#fff",
@@ -422,7 +552,10 @@
         tooltip: {
           trigger: "axis",
           axisPointer: { type: "cross", snap: true },
-          valueFormatter: value => typeof value === "number" ? money(value) : value,
+          appendToBody: true,
+          borderColor: "#d4d8e1",
+          extraCssText: "box-shadow:0 10px 30px rgba(15,23,42,.18);border-radius:6px;",
+          formatter: tooltipFormatter,
         },
         dataZoom: [
           { type: "inside", start: 0, end: 100 },
@@ -434,7 +567,7 @@
           boundaryGap: chartType === "candlestick",
           axisLine: { show: false },
           axisTick: { show: false },
-          axisLabel: { color: "#8a8f98", fontSize: 11 },
+          axisLabel: { color: "#8a8f98", fontSize: 11, hideOverlap: true },
         },
         yAxis: {
           type: "value",

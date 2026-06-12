@@ -105,6 +105,43 @@ def update_watch(conn, ts_code: str, **kwargs) -> dict[str, Any]:
     return {"success": False, "ts_code": ts_code, "message": "未找到该股票"}
 
 
+def add_watch_note(
+    conn,
+    ts_code: str,
+    note: str,
+    timestamp: Optional[str] = None,
+    source: str = "manual",
+) -> dict[str, Any]:
+    """添加关注记录/观察笔记"""
+    if not note.strip():
+        return {"success": False, "ts_code": ts_code, "message": "笔记不能为空"}
+    _, _, exchange = parse_ts_code(ts_code)
+    ts = timestamp or datetime.now().isoformat()
+    conn.execute(
+        """
+        INSERT INTO watch_notes (ts_code, exchange, note, timestamp, source, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (ts_code, exchange, note.strip(), ts, source, datetime.now().isoformat()),
+    )
+    conn.commit()
+    return {"success": True, "ts_code": ts_code, "message": "已添加关注记录"}
+
+
+def get_watch_notes(conn, ts_code: str, limit: int = 20) -> list[dict[str, Any]]:
+    """获取关注记录"""
+    cursor = conn.execute(
+        """
+        SELECT * FROM watch_notes
+        WHERE ts_code = ?
+        ORDER BY timestamp DESC, id DESC
+        LIMIT ?
+        """,
+        (ts_code, limit),
+    )
+    return [dict(row) for row in cursor.fetchall()]
+
+
 def get_watchlist(
     conn, category: Optional[str] = None, status: str = "watching"
 ) -> list[dict[str, Any]]:
@@ -190,6 +227,19 @@ def print_watch_detail(item: dict):
     print(f"{'='*50}\n")
 
 
+def print_watch_notes(notes: list[dict[str, Any]]):
+    """打印关注记录"""
+    if not notes:
+        print("暂无关注记录")
+        return
+    print(f"\n{'='*80}")
+    print(f"  {'时间':<19} {'笔记'}")
+    print(f"{'='*80}")
+    for item in notes:
+        print(f"  {(item.get('timestamp') or '')[:19]:<19} {item.get('note') or '-'}")
+    print(f"{'='*80}\n")
+
+
 def main():
     parser = argparse.ArgumentParser(description="关注列表管理工具")
     parser.add_argument(
@@ -212,6 +262,19 @@ def main():
         "--priority", "-p", type=int, default=0, choices=[0, 1, 2], help="优先级 (0=普通, 1=重点, 2=紧急)"
     )
     add_parser.add_argument("--note", "-n", default="", help="备注")
+
+    # note 命令
+    note_parser = subparsers.add_parser("note", help="添加关注记录/观察笔记")
+    note_parser.add_argument("ts_code", help="股票代码")
+    note_parser.add_argument("--note", "-n", required=True, help="关注记录笔记")
+    note_parser.add_argument("--timestamp", help="记录时间，默认当前时间")
+    note_parser.add_argument("--source", default="manual", help="来源")
+
+    # notes 命令
+    notes_parser = subparsers.add_parser("notes", help="查看关注记录")
+    notes_parser.add_argument("ts_code", help="股票代码")
+    notes_parser.add_argument("--limit", type=int, default=20, help="最多显示 N 条")
+    notes_parser.add_argument("--json", action="store_true", help="JSON 格式输出")
 
     # remove 命令
     rm_parser = subparsers.add_parser("remove", aliases=["rm"], help="删除关注")
@@ -269,6 +332,24 @@ def main():
         )
         icon = "✅" if result["success"] else "⚠️"
         print(f"{icon} {result['message']}: {result['ts_code']}")
+
+    elif args.command == "note":
+        result = add_watch_note(
+            conn,
+            args.ts_code,
+            note=args.note,
+            timestamp=args.timestamp,
+            source=args.source,
+        )
+        icon = "✅" if result["success"] else "⚠️"
+        print(f"{icon} {result['message']}: {result['ts_code']}")
+
+    elif args.command == "notes":
+        notes = get_watch_notes(conn, args.ts_code, args.limit)
+        if args.json:
+            print(json.dumps(notes, indent=2, ensure_ascii=False))
+        else:
+            print_watch_notes(notes)
 
     elif args.command in ("remove", "rm"):
         result = remove_watch(conn, args.ts_code)
