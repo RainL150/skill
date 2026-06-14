@@ -23,10 +23,10 @@ def main() -> None:
     p.add_argument("--side", required=True, choices=["BUY", "SELL", "buy", "sell"], help="交易方向")
     p.add_argument("--price", type=float, required=True, help="成交价格")
     p.add_argument("--quantity", type=int, required=True, help="成交数量")
-    p.add_argument("--reason", default="", help="交易原因")
+    p.add_argument("--reason", default="", help=argparse.SUPPRESS)
     p.add_argument("--stop-loss", type=float, help="止损价")
     p.add_argument("--take-profit", default="", help="止盈目标")
-    p.add_argument("--note", default="", help="备注")
+    p.add_argument("--note", default="", help="交易笔记/交易原因")
     p.add_argument("--currency", default="CNY", help="货币 (默认 CNY)")
     p.add_argument("--exchange", help="交易所 (如 NASDAQ, NYSE, HKEX, SSE, SZSE)")
     p.add_argument("--timestamp", default=datetime.now().astimezone().isoformat(timespec="seconds"),
@@ -51,8 +51,10 @@ def main() -> None:
     else:
         position_after = position_before - args.quantity
 
-    # 构建交易记录
+    # 构建交易记录。交易笔记统一写入 note；--reason 仅作为兼容别名。
     exchange = args.exchange or parse_ts_code(args.ts_code)[2]
+    note_parts = [part.strip() for part in (args.reason, args.note) if part and part.strip()]
+    trade_note = "；".join(dict.fromkeys(note_parts))
     row: dict[str, Any] = {
         "ts_code": args.ts_code,
         "exchange": exchange,
@@ -62,10 +64,9 @@ def main() -> None:
         "amount": args.price * args.quantity,
         "position_before": position_before,
         "position_after": position_after,
-        "reason": args.reason,
         "stop_loss": args.stop_loss,
         "take_profit": args.take_profit,
-        "note": args.note,
+        "note": trade_note,
         "timestamp": args.timestamp,
         "source": "manual",
         "currency": args.currency,
@@ -75,12 +76,12 @@ def main() -> None:
     conn.execute("""
         INSERT INTO trades(
             ts_code, exchange, side, price, quantity, amount,
-            position_before, position_after, reason, stop_loss, take_profit,
+            position_before, position_after, stop_loss, take_profit,
             note, timestamp, source, currency
-        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     """, (
         row["ts_code"], row["exchange"], row["side"], row["price"], row["quantity"],
-        row["amount"], row["position_before"], row["position_after"], row["reason"],
+        row["amount"], row["position_before"], row["position_after"],
         row["stop_loss"], row["take_profit"], row["note"], row["timestamp"],
         row["source"], row["currency"]
     ))

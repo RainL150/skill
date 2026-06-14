@@ -45,8 +45,10 @@ Claude 全局安装时，主 skill 脚本目录为：
 
 ### 记录交易
 ```bash
-cd ~/.claude/skills/stock-trade-journal/scripts && python3 record_trade.py --ts-code <代码> --side <BUY/SELL> --price <价格> --quantity <数量>
+cd ~/.claude/skills/stock-trade-journal/scripts && python3 record_trade.py --ts-code <代码> --side <BUY/SELL> --price <价格> --quantity <数量> --note <交易笔记>
 ```
+
+交易原因和交易备注统一写入 `--note`。
 
 ### 查看持仓
 ```bash
@@ -57,6 +59,8 @@ cd ~/.claude/skills/stock-trade-journal/scripts && python3 query_positions.py
 ```bash
 cd ~/.claude/skills/stock-trade-journal/scripts && python3 watchlist.py <add/ls/rm/up> [参数]
 ```
+
+用户要求查看关注、关注列表、所有关注时，运行 `watchlist.py ls`。输出必须按标的分组展示，并列出每个标的的多条关注记录；每条关注记录都要带日期，不要只展示最新一条笔记。
 
 ### 记录关注笔记
 ```bash

@@ -27,8 +27,7 @@ def append_trade_md(md_path: str, row: dict[str, Any]) -> None:
             f"- 佣金：{commission_text}\n"
             f"- 货币：{row.get('currency', 'N/A')}\n"
             f"- 来源：{row.get('source', 'manual')}\n"
-            f"- 触发原因：{row.get('reason', '')}\n"
             f"- 止损：{row.get('stop_loss', '')}\n"
             f"- 止盈：{row.get('take_profit', '')}\n"
-            f"- 备注：{row.get('note', '')}\n\n"
+            f"- 交易笔记：{row.get('note', '')}\n\n"
         )

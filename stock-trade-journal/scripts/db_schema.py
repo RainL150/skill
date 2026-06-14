@@ -15,6 +15,38 @@ from datetime import datetime
 from typing import Any, Optional
 
 
+IMPORT_NOTE_MARKERS = (
+    "IBKR PDF import",
+    "IBKR Order #",
+    "东方财富截图导入",
+    "截图导入",
+    "source_images=",
+    "source_pdf=",
+    "account=",
+    "settlement=",
+    "raw_code=",
+    "listing_exchange=",
+)
+
+
+def _table_columns(conn: sqlite3.Connection, table: str) -> list[str]:
+    return [row["name"] for row in conn.execute(f"PRAGMA table_info({table})")]
+
+
+def _clean_note(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if any(marker in text for marker in IMPORT_NOTE_MARKERS):
+        return ""
+    return text
+
+
+def _merge_notes(*values: Any) -> str:
+    parts = [_clean_note(value) for value in values]
+    return "；".join(dict.fromkeys(part for part in parts if part))
+
+
 def ensure_db(db_path: str) -> sqlite3.Connection:
     """确保数据库和所有表存在"""
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
@@ -33,7 +65,6 @@ def ensure_db(db_path: str) -> sqlite3.Connection:
             amount REAL,                     -- 交易金额 = price * quantity
             position_before INTEGER,         -- 交易前持仓
             position_after INTEGER,          -- 交易后持仓
-            reason TEXT,
             stop_loss REAL,
             take_profit TEXT,
             note TEXT,
@@ -92,10 +123,8 @@ def ensure_db(db_path: str) -> sqlite3.Connection:
             category TEXT DEFAULT 'default', -- 分类/标签
             target_price REAL,               -- 目标价
             stop_loss REAL,                  -- 止损价
-            reason TEXT,                     -- 关注原因
             priority INTEGER DEFAULT 0,      -- 优先级 (0=普通, 1=重点, 2=紧急)
             status TEXT DEFAULT 'watching',  -- watching/bought/removed
-            note TEXT,
             added_at TEXT DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
@@ -114,7 +143,20 @@ def ensure_db(db_path: str) -> sqlite3.Connection:
         )
     """)
 
-    # 创建索引
+    conn.commit()
+
+    # 迁移：为旧表添加新列/移除旧列
+    _migrate_tables(conn)
+
+    # 表重建迁移会丢失旧索引，迁移后统一补齐。
+    _create_indexes(conn)
+    conn.commit()
+
+    return conn
+
+
+def _create_indexes(conn: sqlite3.Connection) -> None:
+    """创建常用查询索引。"""
     conn.execute("CREATE INDEX IF NOT EXISTS idx_trades_ts_code ON trades(ts_code)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(timestamp)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_positions_ts_code ON positions(ts_code)")
@@ -123,13 +165,6 @@ def ensure_db(db_path: str) -> sqlite3.Connection:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_watchlist_category ON watchlist(category)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_watch_notes_ts_code ON watch_notes(ts_code)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_watch_notes_timestamp ON watch_notes(timestamp)")
-
-    conn.commit()
-
-    # 迁移：为旧表添加新列
-    _migrate_tables(conn)
-
-    return conn
 
 
 def _migrate_tables(conn: sqlite3.Connection) -> None:
@@ -156,7 +191,153 @@ def _migrate_tables(conn: sqlite3.Connection) -> None:
         except sqlite3.OperationalError:
             pass  # 列已存在
 
+    _migrate_trades_note_only(conn)
+    _migrate_watchlist_note_timeline(conn)
+
     conn.commit()
+
+
+def _migrate_trades_note_only(conn: sqlite3.Connection) -> None:
+    """删除 trades.reason，旧 reason 与 note 合并为 note。"""
+    columns = _table_columns(conn, "trades")
+    if "reason" not in columns:
+        return
+
+    rows = [dict(row) for row in conn.execute("SELECT * FROM trades ORDER BY id")]
+    conn.execute("ALTER TABLE trades RENAME TO trades_legacy")
+    conn.execute("""
+        CREATE TABLE trades (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts_code TEXT NOT NULL,
+            exchange TEXT,
+            side TEXT NOT NULL,
+            price REAL NOT NULL,
+            quantity INTEGER NOT NULL,
+            amount REAL,
+            position_before INTEGER,
+            position_after INTEGER,
+            stop_loss REAL,
+            take_profit TEXT,
+            note TEXT,
+            timestamp TEXT NOT NULL,
+            source TEXT DEFAULT 'manual',
+            ibkr_exec_id TEXT,
+            ibkr_order_id INTEGER,
+            commission REAL,
+            currency TEXT DEFAULT 'CNY',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    for row in rows:
+        note = _merge_notes(row.get("reason"), row.get("note"))
+        conn.execute(
+            """
+            INSERT INTO trades (
+                id, ts_code, exchange, side, price, quantity, amount,
+                position_before, position_after, stop_loss, take_profit, note,
+                timestamp, source, ibkr_exec_id, ibkr_order_id, commission,
+                currency, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                row.get("id"),
+                row.get("ts_code"),
+                row.get("exchange"),
+                row.get("side"),
+                row.get("price"),
+                row.get("quantity"),
+                row.get("amount"),
+                row.get("position_before"),
+                row.get("position_after"),
+                row.get("stop_loss"),
+                row.get("take_profit"),
+                note,
+                row.get("timestamp"),
+                row.get("source") or "manual",
+                row.get("ibkr_exec_id"),
+                row.get("ibkr_order_id"),
+                row.get("commission"),
+                row.get("currency") or "CNY",
+                row.get("created_at"),
+            ),
+        )
+    conn.execute("DROP TABLE trades_legacy")
+
+
+def _migrate_watchlist_note_timeline(conn: sqlite3.Connection) -> None:
+    """删除 watchlist.reason/note，旧文本迁入 watch_notes 时间线。"""
+    columns = _table_columns(conn, "watchlist")
+    if "reason" not in columns and "note" not in columns:
+        return
+
+    rows = [dict(row) for row in conn.execute("SELECT * FROM watchlist ORDER BY id")]
+    for row in rows:
+        note = _merge_notes(row.get("reason"), row.get("note"))
+        if note:
+            timestamp = row.get("updated_at") or row.get("added_at") or datetime.now().isoformat()
+            exists = conn.execute(
+                """
+                SELECT 1 FROM watch_notes
+                WHERE ts_code = ? AND note = ? AND source = 'watchlist_migration'
+                LIMIT 1
+                """,
+                (row.get("ts_code"), note),
+            ).fetchone()
+            if not exists:
+                conn.execute(
+                    """
+                    INSERT INTO watch_notes (ts_code, exchange, note, timestamp, source, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        row.get("ts_code"),
+                        row.get("exchange"),
+                        note,
+                        timestamp,
+                        "watchlist_migration",
+                        datetime.now().isoformat(),
+                    ),
+                )
+
+    conn.execute("ALTER TABLE watchlist RENAME TO watchlist_legacy")
+    conn.execute("""
+        CREATE TABLE watchlist (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts_code TEXT NOT NULL UNIQUE,
+            exchange TEXT,
+            name TEXT,
+            category TEXT DEFAULT 'default',
+            target_price REAL,
+            stop_loss REAL,
+            priority INTEGER DEFAULT 0,
+            status TEXT DEFAULT 'watching',
+            added_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    for row in rows:
+        conn.execute(
+            """
+            INSERT INTO watchlist (
+                id, ts_code, exchange, name, category, target_price, stop_loss,
+                priority, status, added_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                row.get("id"),
+                row.get("ts_code"),
+                row.get("exchange"),
+                row.get("name"),
+                row.get("category") or "default",
+                row.get("target_price"),
+                row.get("stop_loss"),
+                row.get("priority") or 0,
+                row.get("status") or "watching",
+                row.get("added_at"),
+                row.get("updated_at"),
+            ),
+        )
+    conn.execute("DROP TABLE watchlist_legacy")
 
 
 def parse_ts_code(ts_code: str) -> tuple[str, str, str]:

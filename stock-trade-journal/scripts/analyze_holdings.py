@@ -56,7 +56,7 @@ def get_recent_trades(conn, ts_code: str, limit: int = 10) -> list[dict[str, Any
     """读取最近交易记录。"""
     cursor = conn.execute(
         """
-        SELECT id, ts_code, exchange, side, price, quantity, reason, stop_loss,
+        SELECT id, ts_code, exchange, side, price, quantity, stop_loss,
                take_profit, note, timestamp, source, commission, currency
         FROM trades
         WHERE ts_code = ?
@@ -68,7 +68,6 @@ def get_recent_trades(conn, ts_code: str, limit: int = 10) -> list[dict[str, Any
     trades = []
     for row in cursor.fetchall():
         item = dict(row)
-        item["reason"] = clean_user_note(item.get("reason"))
         item["note"] = clean_user_note(item.get("note"))
         trades.append(item)
     return trades
@@ -156,8 +155,6 @@ def generate_watch_analysis_prompt(
     title = f"{name}（{ts_code}）" if name else ts_code
     target = watch.get("target_price")
     stop = watch.get("stop_loss")
-    reason = watch.get("reason") or ""
-    note = watch.get("note") or ""
     category = watch.get("category") or "default"
 
     watch_lines = [
@@ -169,10 +166,6 @@ def generate_watch_analysis_prompt(
         watch_lines.append(f"- 目标价: {target}")
     if stop:
         watch_lines.append(f"- 止损价: {stop}")
-    if reason:
-        watch_lines.append(f"- 关注原因: {reason}")
-    if note:
-        watch_lines.append(f"- 关注备注: {note}")
 
     note_lines = []
     for item in notes[:5]:
@@ -360,7 +353,6 @@ def print_context_packet(packet: dict[str, Any]) -> None:
         print(f"- 分类: {watch.get('category') or '-'}")
         print(f"- 目标价: {watch.get('target_price') or '-'}")
         print(f"- 止损价: {watch.get('stop_loss') or '-'}")
-        print(f"- 原因: {watch.get('reason') or '-'}")
     if packet.get("watch_notes"):
         print("\n关注记录:")
         for note in packet["watch_notes"]:

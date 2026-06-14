@@ -19,7 +19,7 @@ def main() -> None:
     conn = sqlite3.connect(db)
     rows = conn.execute(
         """
-        SELECT timestamp, ts_code, exchange, side, price, quantity, position_after, reason
+        SELECT timestamp, ts_code, exchange, side, price, quantity, position_after, note
         FROM trades
         WHERE ts_code=?
         ORDER BY id DESC

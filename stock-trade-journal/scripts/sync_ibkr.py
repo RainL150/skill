@@ -146,10 +146,9 @@ def sync_executions(ib: IB, conn, md_base: str, days: int = 7) -> int:
             "amount": amount,
             "position_before": position_before,
             "position_after": position_after,
-            "reason": f"IBKR Order #{execution.orderId}",
             "stop_loss": None,
             "take_profit": None,
-            "note": f"Account: {execution.acctNumber}",
+            "note": "",
             "timestamp": timestamp,
             "source": "ibkr",
             "ibkr_exec_id": exec_id,
@@ -162,12 +161,12 @@ def sync_executions(ib: IB, conn, md_base: str, days: int = 7) -> int:
         conn.execute("""
             INSERT INTO trades(
                 ts_code, exchange, side, price, quantity, amount,
-                position_before, position_after, reason, stop_loss, take_profit,
+                position_before, position_after, stop_loss, take_profit,
                 note, timestamp, source, ibkr_exec_id, ibkr_order_id, commission, currency
-            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, (
             row["ts_code"], row["exchange"], row["side"], row["price"], row["quantity"],
-            row["amount"], row["position_before"], row["position_after"], row["reason"],
+            row["amount"], row["position_before"], row["position_after"],
             row["stop_loss"], row["take_profit"], row["note"], row["timestamp"],
             row["source"], row["ibkr_exec_id"], row["ibkr_order_id"],
             row["commission"], row["currency"]

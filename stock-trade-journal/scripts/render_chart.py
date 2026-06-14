@@ -360,8 +360,8 @@ def clean_note_part(value: Any) -> str:
     return text
 
 
-def combine_trade_memo(reason: Any, note: Any, stop_loss: Any = None, take_profit: Any = None) -> str:
-    parts = [clean_note_part(reason)]
+def combine_trade_memo(note: Any, stop_loss: Any = None, take_profit: Any = None) -> str:
+    parts = []
     triggers = []
     if stop_loss not in (None, ""):
         triggers.append(f"止损 {stop_loss}")
@@ -371,10 +371,6 @@ def combine_trade_memo(reason: Any, note: Any, stop_loss: Any = None, take_profi
         parts.append("；".join(triggers))
     parts.append(clean_note_part(note))
     return "；".join(part for part in parts if part)
-
-
-def combine_watch_memo(reason: Any, note: Any) -> str:
-    return "；".join(part for part in (clean_note_part(reason), clean_note_part(note)) if part)
 
 
 def load_local_context(db_path: str, ts_code: str) -> dict[str, Any]:
@@ -397,7 +393,7 @@ def load_local_context(db_path: str, ts_code: str) -> dict[str, Any]:
 
         trade_rows = conn.execute(
             """
-            SELECT timestamp, side, price, quantity, reason, stop_loss, take_profit, note, source, position_after
+            SELECT timestamp, side, price, quantity, stop_loss, take_profit, note, source, position_after
             FROM trades
             WHERE ts_code = ?
             ORDER BY timestamp ASC, id ASC
@@ -410,11 +406,10 @@ def load_local_context(db_path: str, ts_code: str) -> dict[str, Any]:
                 "side": str(row["side"]).upper(),
                 "price": row["price"],
                 "quantity": row["quantity"],
-                "reason": row["reason"] or "",
                 "stopLoss": row["stop_loss"],
                 "takeProfit": row["take_profit"] or "",
                 "note": row["note"] or "",
-                "memo": combine_trade_memo(row["reason"], row["note"], row["stop_loss"], row["take_profit"]),
+                "memo": combine_trade_memo(row["note"], row["stop_loss"], row["take_profit"]),
                 "source": row["source"] or "",
                 "positionAfter": row["position_after"],
             }
@@ -433,11 +428,10 @@ def load_local_context(db_path: str, ts_code: str) -> dict[str, Any]:
                 "category": watch["category"],
                 "targetPrice": watch["target_price"],
                 "stopLoss": watch["stop_loss"],
-                "reason": watch["reason"],
                 "priority": watch["priority"],
                 "status": watch["status"],
-                "note": watch["note"],
-                "memo": combine_watch_memo(watch["reason"], watch["note"]),
+                "note": "",
+                "memo": "",
                 "addedAt": parse_timestamp(watch["added_at"]),
                 "updatedAt": parse_timestamp(watch["updated_at"]),
             }

@@ -83,10 +83,9 @@ CREATE TABLE trades (
   amount REAL,                  -- 金额
   position_before INTEGER,      -- 交易前持仓
   position_after INTEGER,       -- 交易后持仓
-  reason TEXT,                  -- 交易原因
   stop_loss REAL,               -- 止损价
   take_profit TEXT,             -- 止盈目标
-  note TEXT,
+  note TEXT,                    -- 交易笔记/交易原因
   timestamp TEXT NOT NULL,
   source TEXT DEFAULT 'manual', -- manual/ibkr/import
   ibkr_exec_id TEXT,
@@ -137,7 +136,7 @@ python3 scripts/record_trade.py \
   --side BUY \
   --price 150.5 \
   --quantity 100 \
-  --reason "看好AI业务"
+  --note "看好AI业务"
 ```
 
 输出：
@@ -286,9 +285,10 @@ python3 scripts/watchlist.py add NVDA.US \
   --category "AI芯片" \
   --target 150 \
   --stop 120 \
-  --reason "AI龙头，数据中心需求强劲" \
-  --priority 2 \
-  --note "等回调买入"
+  --priority 2
+
+# 添加观察笔记
+python3 scripts/watchlist.py note NVDA.US --note "AI龙头，数据中心需求强劲，等回调买入"
 ```
 
 ### 查看列表
@@ -296,6 +296,9 @@ python3 scripts/watchlist.py add NVDA.US \
 ```bash
 # 查看所有关注
 python3 scripts/watchlist.py ls
+
+# 查看所有关注，并为每个标的展示最近 20 条关注记录
+python3 scripts/watchlist.py ls --notes-limit 20
 
 # 按分类筛选
 python3 scripts/watchlist.py ls -c "AI芯片"
@@ -340,10 +343,16 @@ python3 scripts/watchlist.py cats
 | `--category`, `-c` | 分类标签 | "AI芯片" |
 | `--target`, `-t` | 目标价 | 150.0 |
 | `--stop`, `-s` | 止损价 | 120.0 |
-| `--reason`, `-r` | 关注原因 | "技术突破" |
 | `--priority`, `-p` | 优先级 (0=普通, 1=重点⭐, 2=紧急🔥) | 2 |
 | `--status` | 状态 (watching/bought/removed) | watching |
-| `--note`, `-n` | 备注 | "等回调" |
+
+关注列表只保存标的状态、分类、目标价、止损价和优先级；关注笔记统一写入关注记录时间线：
+
+```bash
+python3 scripts/watchlist.py note <代码> --note <观察笔记>
+```
+
+查看关注列表时，应按标的分组展示多条关注记录，并为每条记录显示日期；不要把关注笔记压缩成单条“最新笔记”。
 
 ---
 
@@ -533,7 +542,7 @@ python3 scripts/render_chart.py RDDT.US --price-json prices.json
 
 - 行情：默认从东方财富获取 OHLC 数据，`--price-json` 可跳过网络使用本地数据
 - `trades`：BUY/SELL 交易会贴近最近一根 K 线，显示为 B/S 标记
-- `trades` 笔记：交易原因、止损/止盈触发条件、备注会合并展示；“截图导入”等来源信息不作为笔记
+- `trades` 笔记：交易原因/备注统一写入 `note`，止损/止盈触发条件会一并展示；“截图导入”等来源信息不作为笔记
 - `positions`：持仓均价会显示为水平线
 - `positions` + 最新收盘价：自动计算市值、总体浮盈和收益率
 - `watchlist`：关注列表只管理标的状态、分类、目标价、止损价等

@@ -26,9 +26,7 @@ def add_watch(
     category: str = "default",
     target_price: Optional[float] = None,
     stop_loss: Optional[float] = None,
-    reason: str = "",
     priority: int = 0,
-    note: str = "",
 ) -> dict[str, Any]:
     """添加关注股票"""
     _, _, exchange = parse_ts_code(ts_code)
@@ -38,8 +36,8 @@ def add_watch(
             """
             INSERT INTO watchlist (
                 ts_code, exchange, name, category, target_price, stop_loss,
-                reason, priority, note, added_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                priority, added_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
             (
                 ts_code,
@@ -48,9 +46,7 @@ def add_watch(
                 category,
                 target_price,
                 stop_loss,
-                reason,
                 priority,
-                note,
                 datetime.now().isoformat(),
                 datetime.now().isoformat(),
             ),
@@ -80,10 +76,8 @@ def update_watch(conn, ts_code: str, **kwargs) -> dict[str, Any]:
         "category",
         "target_price",
         "stop_loss",
-        "reason",
         "priority",
         "status",
-        "note",
     ]
     updates = {k: v for k, v in kwargs.items() if k in valid_fields and v is not None}
 
@@ -142,19 +136,46 @@ def get_watch_notes(conn, ts_code: str, limit: int = 20) -> list[dict[str, Any]]
     return [dict(row) for row in cursor.fetchall()]
 
 
+def get_watch_notes_map(conn, ts_codes: list[str], limit: int = 10) -> dict[str, list[dict[str, Any]]]:
+    """批量获取关注记录，按股票代码分组。"""
+    return {ts_code: get_watch_notes(conn, ts_code, limit) for ts_code in ts_codes}
+
+
+def attach_watch_notes(
+    watchlist: list[dict[str, Any]],
+    notes_map: dict[str, list[dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    """给关注列表附加关注记录，便于 JSON 输出。"""
+    result = []
+    for item in watchlist:
+        row = dict(item)
+        row["notes"] = notes_map.get(item["ts_code"], [])
+        result.append(row)
+    return result
+
+
 def get_watchlist(
-    conn, category: Optional[str] = None, status: str = "watching"
+    conn, category: Optional[str] = None, status: Optional[str] = "watching"
 ) -> list[dict[str, Any]]:
     """获取关注列表"""
-    if category:
+    if category and status:
         cursor = conn.execute(
             "SELECT * FROM watchlist WHERE category = ? AND status = ? ORDER BY priority DESC, added_at DESC",
             (category, status),
         )
-    else:
+    elif category:
+        cursor = conn.execute(
+            "SELECT * FROM watchlist WHERE category = ? ORDER BY priority DESC, added_at DESC",
+            (category,),
+        )
+    elif status:
         cursor = conn.execute(
             "SELECT * FROM watchlist WHERE status = ? ORDER BY priority DESC, added_at DESC",
             (status,),
+        )
+    else:
+        cursor = conn.execute(
+            "SELECT * FROM watchlist ORDER BY priority DESC, added_at DESC"
         )
     return [dict(row) for row in cursor.fetchall()]
 
@@ -174,39 +195,52 @@ def get_categories(conn) -> list[str]:
     return [row[0] for row in cursor.fetchall()]
 
 
-def print_watchlist_table(watchlist: list, show_all: bool = False):
-    """打印关注列表表格"""
+def format_date(value: str) -> str:
+    """把 ISO 时间压缩为列表展示用日期。"""
+    return (value or "")[:10] or "-"
+
+
+def format_price(value: Any) -> str:
+    return f"{value:.2f}" if value not in (None, "") else "-"
+
+
+def print_watchlist_table(
+    watchlist: list,
+    notes_map: Optional[dict[str, list[dict[str, Any]]]] = None,
+):
+    """按标的分组打印关注列表和多条关注记录。"""
     if not watchlist:
         print("关注列表为空")
         return
 
-    priority_icons = {0: "  ", 1: "⭐", 2: "🔥"}
+    notes_map = notes_map or {}
+    priority_names = {0: "普通", 1: "重点", 2: "紧急"}
 
-    print(f"\n{'='*100}")
-    print(
-        f"  {'优先':<4} {'代码':<12} {'名称':<10} {'分类':<10} {'目标价':>10} {'止损':>10} {'关注原因':<20}"
-    )
-    print(f"{'='*100}")
+    print(f"\n关注列表（共 {len(watchlist)} 只）")
+    print("=" * 80)
 
-    for item in watchlist:
-        priority = priority_icons.get(item.get("priority", 0), "  ")
+    for index, item in enumerate(watchlist, 1):
         ts_code = item["ts_code"]
-        name = (item.get("name") or "")[:10]
-        category = (item.get("category") or "default")[:10]
-        target = f"{item['target_price']:.2f}" if item.get("target_price") else "-"
-        stop = f"{item['stop_loss']:.2f}" if item.get("stop_loss") else "-"
-        reason = (item.get("reason") or "")[:20]
-
+        name = item.get("name") or "-"
+        category = item.get("category") or "default"
+        target = format_price(item.get("target_price"))
+        stop = format_price(item.get("stop_loss"))
+        priority = priority_names.get(item.get("priority", 0), "普通")
+        status = item.get("status") or "watching"
         print(
-            f"  {priority:<4} {ts_code:<12} {name:<10} {category:<10} {target:>10} {stop:>10} {reason:<20}"
+            f"{index}. {ts_code} {name} | {category} | 目标 {target} | 止损 {stop} | {priority} | {status}"
         )
 
-    print(f"{'='*100}")
-    print(f"  共 {len(watchlist)} 只股票")
-    print(f"{'='*100}\n")
+        notes = notes_map.get(ts_code, [])
+        if notes:
+            for note in notes:
+                print(f"   - {format_date(note.get('timestamp'))} {note.get('note') or '-'}")
+        else:
+            print("   - 暂无关注笔记")
+    print("=" * 80)
 
 
-def print_watch_detail(item: dict):
+def print_watch_detail(item: dict, notes: Optional[list[dict[str, Any]]] = None):
     """打印单个关注股票详情"""
     priority_names = {0: "普通", 1: "重点 ⭐", 2: "紧急 🔥"}
 
@@ -220,10 +254,15 @@ def print_watch_detail(item: dict):
     print(f"  状态:     {item.get('status') or 'watching'}")
     print(f"  目标价:   {item['target_price']:.2f}" if item.get("target_price") else "  目标价:   -")
     print(f"  止损价:   {item['stop_loss']:.2f}" if item.get("stop_loss") else "  止损价:   -")
-    print(f"  关注原因: {item.get('reason') or '-'}")
-    print(f"  备注:     {item.get('note') or '-'}")
     print(f"  添加时间: {item.get('added_at', '')[:19]}")
     print(f"  更新时间: {item.get('updated_at', '')[:19]}")
+    print("  关注记录:")
+    notes = notes or []
+    if notes:
+        for note in notes:
+            print(f"    - {format_date(note.get('timestamp'))} {note.get('note') or '-'}")
+    else:
+        print("    - 暂无关注笔记")
     print(f"{'='*50}\n")
 
 
@@ -257,11 +296,11 @@ def main():
     add_parser.add_argument("--category", "-c", default="default", help="分类")
     add_parser.add_argument("--target", "-t", type=float, help="目标价")
     add_parser.add_argument("--stop", "-s", type=float, help="止损价")
-    add_parser.add_argument("--reason", "-r", default="", help="关注原因")
+    add_parser.add_argument("--reason", "-r", default="", help=argparse.SUPPRESS)
     add_parser.add_argument(
         "--priority", "-p", type=int, default=0, choices=[0, 1, 2], help="优先级 (0=普通, 1=重点, 2=紧急)"
     )
-    add_parser.add_argument("--note", "-n", default="", help="备注")
+    add_parser.add_argument("--note", "-n", default="", help="关注记录笔记")
 
     # note 命令
     note_parser = subparsers.add_parser("note", help="添加关注记录/观察笔记")
@@ -287,20 +326,22 @@ def main():
     up_parser.add_argument("--category", "-c", help="分类")
     up_parser.add_argument("--target", "-t", type=float, help="目标价")
     up_parser.add_argument("--stop", "-s", type=float, help="止损价")
-    up_parser.add_argument("--reason", "-r", help="关注原因")
+    up_parser.add_argument("--reason", "-r", help=argparse.SUPPRESS)
     up_parser.add_argument("--priority", "-p", type=int, choices=[0, 1, 2], help="优先级")
     up_parser.add_argument("--status", choices=["watching", "bought", "removed"], help="状态")
-    up_parser.add_argument("--note", "-n", help="备注")
+    up_parser.add_argument("--note", "-n", help="关注记录笔记")
 
     # list 命令
     ls_parser = subparsers.add_parser("list", aliases=["ls"], help="查看关注列表")
     ls_parser.add_argument("--category", "-c", help="按分类筛选")
     ls_parser.add_argument("--all", "-a", action="store_true", help="显示所有状态")
+    ls_parser.add_argument("--notes-limit", type=int, default=10, help="每只股票显示最近 N 条关注记录")
     ls_parser.add_argument("--json", action="store_true", help="JSON 格式输出")
 
     # show 命令
     show_parser = subparsers.add_parser("show", help="查看单个股票详情")
     show_parser.add_argument("ts_code", help="股票代码")
+    show_parser.add_argument("--notes-limit", type=int, default=20, help="显示最近 N 条关注记录")
     show_parser.add_argument("--json", action="store_true", help="JSON 格式输出")
 
     # categories 命令
@@ -326,10 +367,11 @@ def main():
             category=args.category,
             target_price=args.target,
             stop_loss=args.stop,
-            reason=args.reason,
             priority=args.priority,
-            note=args.note,
         )
+        note_text = "；".join(part for part in (args.reason, args.note) if part)
+        if note_text:
+            add_watch_note(conn, args.ts_code, note_text, source="watchlist_add")
         icon = "✅" if result["success"] else "⚠️"
         print(f"{icon} {result['message']}: {result['ts_code']}")
 
@@ -364,31 +406,37 @@ def main():
             category=args.category,
             target_price=args.target,
             stop_loss=args.stop,
-            reason=args.reason,
             priority=args.priority,
             status=args.status,
-            note=args.note,
         )
+        note_text = "；".join(part for part in (args.reason, args.note) if part)
+        if note_text:
+            add_watch_note(conn, args.ts_code, note_text, source="watchlist_update")
         icon = "✅" if result["success"] else "⚠️"
         print(f"{icon} {result['message']}")
 
     elif args.command in ("list", "ls"):
         status = None if args.all else "watching"
         watchlist = get_watchlist(conn, category=args.category, status=status) if status else get_watchlist(conn, category=args.category)
+        notes_map = get_watch_notes_map(conn, [item["ts_code"] for item in watchlist], args.notes_limit)
+        output = attach_watch_notes(watchlist, notes_map)
         if args.json:
-            print(json.dumps(watchlist, indent=2, ensure_ascii=False))
+            print(json.dumps(output, indent=2, ensure_ascii=False))
         else:
             if args.category:
                 print(f"\n分类: {args.category}")
-            print_watchlist_table(watchlist)
+            print_watchlist_table(watchlist, notes_map)
 
     elif args.command == "show":
         item = get_watch(conn, args.ts_code)
         if item:
+            notes = get_watch_notes(conn, args.ts_code, args.notes_limit)
             if args.json:
-                print(json.dumps(item, indent=2, ensure_ascii=False))
+                output = dict(item)
+                output["notes"] = notes
+                print(json.dumps(output, indent=2, ensure_ascii=False))
             else:
-                print_watch_detail(item)
+                print_watch_detail(item, notes)
         else:
             print(f"未找到 {args.ts_code}")
 
