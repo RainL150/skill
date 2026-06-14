@@ -48,10 +48,13 @@ metadata:
 | `/stj 关注` | 添加关注 | `/stj 关注 AVGO.US --target 200` |
 | `/stj 关注记录` | 添加观察笔记 | `/stj 关注记录 0700.HK 买入观望` |
 | `/stj 关注列表` | 查看关注 | `/stj 关注列表` |
-| `/stj 分析` | TradingView分析 | `/stj 分析` |
+| `/stj ah 分析` | 直接分析持仓/关注标的 | `/stj ah RDDT分析` |
+| `/stj ah` | analyze_holdings 提示词/任务清单 | `/stj ah prompt RDDT.US` |
+| `/stj ah 腾讯` | 关注标的买入候选分析提示词 | `/stj ah prompt 腾讯` |
+| `/stj analyze_hoding` | analyze_holdings 拼写容错别名 | `/stj analyze_hoding prompt` |
+| `/stj tv` | TradingView 链接/报告/打开图表 | `/stj tv link RDDT.US` |
 | `/stj 看图` | 生成带交易/关注标注的本地图表 | `/stj 看图 RDDT.US` |
 | `/stj 同步` | 同步IBKR | `/stj 同步IBKR` |
-| `/stj web` | 启动Web界面 | `/stj web` |
 
 ---
 
@@ -264,7 +267,6 @@ python3 scripts/sync_ibkr.py --local
 | `render_chart.py` | 生成带交易/关注标注的本地 ECharts 图表 |
 | `analyze_positions.py` | TradingView 分析 |
 | `sync_ibkr.py` | IBKR API 同步 |
-| `web/app.py` | Web 可视化界面 |
 
 ---
 
@@ -345,69 +347,114 @@ python3 scripts/watchlist.py cats
 
 ---
 
-## Web 可视化界面
-
-提供浏览器访问的可视化 Dashboard，实时查看持仓和交易记录。
-
-### 安装依赖
-
-```bash
-pip install flask
-```
-
-### 启动服务
-
-```bash
-# 启动 Web 服务 (默认端口 5000)
-python3 web/app.py
-# 指定端口
-python3 web/app.py --port 8080
-
-# 允许局域网访问
-python3 web/app.py --host 0.0.0.0
-```
-
-### 访问地址
-
-启动后访问: **http://localhost:5000**
-
-### 功能特性
-
-| 功能 | 说明 |
-|------|------|
-| 📊 **持仓表** | 代码、数量、均价、成本、盈亏 |
-| 📝 **交易记录** | 时间、方向、价格、数量、来源 |
-| 📈 **统计卡片** | 持仓数、总成本、已实现盈亏、交易笔数 |
-| 🔄 **自动刷新** | 每 30 秒自动更新数据 |
-| 📱 **响应式** | 支持手机/平板访问 |
-| 🌙 **暗色主题** | 护眼设计 |
-
-### API 端点
-
-| 端点 | 说明 |
-|------|------|
-| `GET /` | Web 界面首页 |
-| `GET /api/stats` | 统计数据 |
-| `GET /api/positions` | 持仓列表 |
-| `GET /api/trades?limit=50` | 交易记录 |
-| `GET /api/position/<ts_code>` | 单个持仓详情 |
-
-### 参数说明
-
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `--workspace` | 工作目录 | `STJ_WORKSPACE` 或 `~/.trade-journal` |
-| `--port` | 端口号 | 5000 |
-| `--host` | 监听地址 | 127.0.0.1 |
-| `--debug` | 调试模式 | - |
-
----
-
 ## TradingView 持仓分析
 
 提供 TradingView 图表链接生成和持仓分析功能。
 
-### 命令
+### 与 analyze_holdings 的区别
+
+| 入口 | 脚本 | 用途 | 示例 |
+|------|------|------|------|
+| `/stj ah ...` | `analyze_holdings.py` + `references/invest-research-flow.md` | 直接分析或生成提示词；持仓用于持有分析，关注标的用于买入候选分析 | `/stj ah RDDT分析` |
+| `/stj tv ...` | `analyze_positions.py` | 生成 TradingView 链接、打开图表、生成持仓报告 | `/stj tv link 0700.HK` |
+
+优先按显式前缀区分：用户说 `ah`、`analyze_holdings`、`analyze_hoding`、`分析提示词` 时走 `analyze_holdings.py`；用户说 `tv`、`TradingView`、`图表链接`、`持仓报告` 时走 `analyze_positions.py`。
+
+### 内置投研框架
+
+`stock-trade-journal` 已内置 `invest-research-skills` 的运行时材料，不依赖外部 skill 是否安装：
+
+```text
+references/invest-research-skills/
+├── SKILL.md
+├── stock-fundamental/
+│   ├── SKILL.md
+│   ├── assets/report-template.md
+│   └── references/
+├── sector-research/
+│   ├── SKILL.md
+│   ├── assets/
+│   ├── references/
+│   └── scripts/calc.py
+├── shared-research-context/
+│   ├── SKILL.md
+│   └── references/
+└── research-review/
+    ├── SKILL.md
+    ├── assets/
+    └── references/
+```
+
+直接分析时先读 `references/invest-research-flow.md`，再按任务需要加载上面的内部 reference。不要把这一步简化成“生成 prompt”。
+
+### ah 直接分析工作流
+
+当用户说 `/stj ah <标的>分析`、`/stj ah prompt <标的>分析`、`/stj ah analyze <标的>`、`/stj 分析 <标的>`、`/stj 看看 <标的>`、`买不买/持有吗` 时，不要只输出 prompt。先读取本地上下文，再联网获取最新数据，并按 `references/invest-research-flow.md` 直接产出结论。
+
+本地上下文命令：
+
+```bash
+python3 scripts/analyze_holdings.py context RDDT.US --json
+python3 scripts/analyze_holdings.py context rddt分析 --json
+python3 scripts/analyze_holdings.py context 腾讯 --json
+```
+
+输出要求：
+
+- 当前持仓：回答继续持有、加仓、减仓、风险和失效条件。
+- 关注标的：回答是否值得新开仓买入、买入触发条件、仓位计划和失效条件。
+- 必须结合最新行情、估值、财报/公告；优先官方 IR/SEC/交易所公告。
+- 先结论后依据，不要把 `invest-research-skills` 框架当成机械章节。
+
+### analyze_holdings 提示词/任务触发方式
+
+```bash
+# 组合分析提示词
+python3 scripts/analyze_holdings.py prompt
+
+# 单股分析提示词；支持代码或关注列表名称
+python3 scripts/analyze_holdings.py prompt 0700.HK
+python3 scripts/analyze_holdings.py prompt 腾讯
+
+# 快速分析提示词
+python3 scripts/analyze_holdings.py quick 0700.HK
+python3 scripts/analyze_holdings.py quick 腾讯
+
+# 本地分析上下文
+python3 scripts/analyze_holdings.py context 0700.HK --json
+
+# 分析任务清单
+python3 scripts/analyze_holdings.py tasks
+```
+
+对应自然语言：
+
+- `/stj ah prompt`
+- `/stj ah prompt 0700.HK`
+- `/stj ah prompt 腾讯`
+- `/stj ah RDDT分析`
+- `/stj ah prompt RDDT分析`
+- `/stj ah analyze RDDT.US`
+- `/stj ah quick 0700.HK`
+- `/stj ah quick 腾讯`
+- `/stj ah tasks`
+- `/stj analyze_hoding prompt`
+- `/stj 分析持仓`
+- `/stj 快速分析 0700.HK`
+
+只有用户显式使用 `prompt` 且没有“分析/看看/买不买/持有吗”等分析意图时，才返回脚本输出本身；用户说“分析”时直接执行上面的投研分析工作流。
+
+### TradingView 触发方式
+
+对应自然语言：
+
+- `/stj tv link`
+- `/stj tv link 0700.HK`
+- `/stj tv report`
+- `/stj tv open 0700.HK`
+- `/stj tv open all`
+
+对应脚本命令：
 
 ```bash
 # 显示所有持仓的 TradingView 链接
@@ -484,6 +531,7 @@ python3 scripts/render_chart.py RDDT.US --price-json prices.json
 
 图表模板来自 `templates/stock-chart.html`，抽取自 `baijuyi_fe` 的 ECharts stock chart 组件。生成时会自动读取本地数据库：
 
+- 行情：默认从东方财富获取 OHLC 数据，`--price-json` 可跳过网络使用本地数据
 - `trades`：BUY/SELL 交易会贴近最近一根 K 线，显示为 B/S 标记
 - `trades` 笔记：交易原因、止损/止盈触发条件、备注会合并展示；“截图导入”等来源信息不作为笔记
 - `positions`：持仓均价会显示为水平线

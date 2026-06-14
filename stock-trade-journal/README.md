@@ -30,7 +30,7 @@ python3 scripts/render_chart.py RDDT.US --period 交易以来
 
 图表默认输出到 `~/.trade-journal/results/trade-journal/charts/<代码>.html`，并同步更新固定入口
 `~/.trade-journal/results/trade-journal/charts/latest.html`。
-脚本会为 A 股从东方财富获取 OHLC 数据，其他市场默认走 Yahoo chart API，并自动挂载本地 `trades`、`positions`、`watchlist` 记录。
+脚本默认从东方财富获取 OHLC 数据，并自动挂载本地 `trades`、`positions`、`watchlist`、`watch_notes` 记录。
 交易原因、止损/止盈和备注会合并为图表笔记，截图导入等来源信息不会作为笔记展示。
 关注列表和关注记录分开；关注记录写入 `watch_notes`，是无买卖行为的观察笔记，会按日期挂到图上。
 如已有价格数据，可用 `--price-json path/to/ohlc.json` 跳过网络拉取。

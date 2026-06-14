@@ -270,8 +270,10 @@ def fetch_eastmoney_ohlc(ts_code: str, period: str, interval: str, start: dateti
         secid = f"1.{symbol}"
     elif market == "HK":
         secid = f"116.{symbol.zfill(5)}"
+    elif market == "US":
+        secid = f"105.{symbol.upper()}"
     else:
-        raise RuntimeError(f"东方财富仅支持 A 股 SH/SZ 和港股 HK，当前代码: {ts_code}")
+        secid = f"105.{symbol.upper()}"
 
     query = urllib.parse.urlencode(
         {
@@ -298,7 +300,11 @@ def fetch_eastmoney_ohlc(ts_code: str, period: str, interval: str, start: dateti
     except urllib.error.URLError as exc:
         raise RuntimeError(f"无法获取东方财富价格数据: {exc}") from exc
 
-    klines = ((data.get("data") or {}).get("klines") or [])
+    result = data.get("data") or {}
+    klines = result.get("klines") or []
+    if not klines:
+        error = data.get("rc")
+        raise RuntimeError(f"东方财富返回空数据: secid={secid}, rc={error}")
     records: list[dict[str, Any]] = []
     for line in klines:
         parts = line.split(",")
@@ -519,10 +525,8 @@ def main() -> int:
     yf_symbol = to_yahoo_symbol(args.ts_code, exchange)
     if args.price_json:
         ohlc = load_ohlc_json(args.price_json)
-    elif market in {"SH", "SZ", "HK"}:
-        ohlc = fetch_eastmoney_ohlc(args.ts_code, period, interval, start)
     else:
-        ohlc = fetch_yahoo_ohlc(yf_symbol, period, interval, start)
+        ohlc = fetch_eastmoney_ohlc(args.ts_code, period, interval, start)
     if not ohlc:
         raise RuntimeError("没有可绘制的价格数据")
 

@@ -12,10 +12,88 @@
 import argparse
 import json
 import os
+import re
 from datetime import datetime
-from typing import Any
+from typing import Any, Optional
 
 from db_schema import ensure_db, get_positions
+
+
+IMPORT_MARKERS = (
+    "IBKR PDF import",
+    "source_pdf=",
+    "account=",
+    "settlement=",
+    "listing_exchange=",
+    "proceeds=",
+    "commission=",
+    "fee=",
+)
+
+
+def clean_user_note(value: Any) -> str:
+    """过滤导入来源等元数据，避免误当成投资笔记。"""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if any(marker in text for marker in IMPORT_MARKERS):
+        return ""
+    return text
+
+
+def normalize_query(query: str) -> str:
+    """把自然语言片段规整成更容易匹配的代码或名称。"""
+    q = (query or "").strip()
+    for word in ("分析一下", "分析", "研究一下", "研究", "看看", "看一下"):
+        q = q.replace(word, "")
+    q = q.strip().strip(":：,，")
+    if re.fullmatch(r"[A-Za-z]{1,8}", q):
+        return f"{q.upper()}.US"
+    return q
+
+
+def get_recent_trades(conn, ts_code: str, limit: int = 10) -> list[dict[str, Any]]:
+    """读取最近交易记录。"""
+    cursor = conn.execute(
+        """
+        SELECT id, ts_code, exchange, side, price, quantity, reason, stop_loss,
+               take_profit, note, timestamp, source, commission, currency
+        FROM trades
+        WHERE ts_code = ?
+        ORDER BY timestamp DESC, id DESC
+        LIMIT ?
+        """,
+        (ts_code, limit),
+    )
+    trades = []
+    for row in cursor.fetchall():
+        item = dict(row)
+        item["reason"] = clean_user_note(item.get("reason"))
+        item["note"] = clean_user_note(item.get("note"))
+        trades.append(item)
+    return trades
+
+
+def resolve_target(
+    conn,
+    positions: list[dict[str, Any]],
+    query: str,
+) -> tuple[str, Optional[dict[str, Any]], Optional[dict[str, Any]]]:
+    """按代码、名称或自然语言片段解析标的。"""
+    normalized = normalize_query(query)
+    candidates = [query, normalized]
+    for candidate in candidates:
+        pos = next((p for p in positions if p["ts_code"].upper() == candidate.upper()), None)
+        if pos:
+            return pos["ts_code"], pos, find_watch(conn, pos["ts_code"])
+
+    for candidate in candidates:
+        watch = find_watch(conn, candidate)
+        if watch:
+            pos = next((p for p in positions if p["ts_code"] == watch["ts_code"]), None)
+            return watch["ts_code"], pos, watch
+
+    return normalized, None, None
 
 
 def generate_analysis_prompt(position: dict[str, Any], analysis_type: str = "fundamental") -> str:
@@ -67,6 +145,108 @@ def generate_analysis_prompt(position: dict[str, Any], analysis_type: str = "fun
     return f"分析 {ts_code}"
 
 
+def generate_watch_analysis_prompt(
+    watch: dict[str, Any],
+    notes: list[dict[str, Any]],
+    analysis_type: str = "fundamental",
+) -> str:
+    """生成关注标的的买入候选分析提示词。"""
+    ts_code = watch["ts_code"]
+    name = watch.get("name") or ""
+    title = f"{name}（{ts_code}）" if name else ts_code
+    target = watch.get("target_price")
+    stop = watch.get("stop_loss")
+    reason = watch.get("reason") or ""
+    note = watch.get("note") or ""
+    category = watch.get("category") or "default"
+
+    watch_lines = [
+        f"- 分类: {category}",
+        "- 当前状态: 关注中，尚无本地持仓",
+        "- 分析目标: 判断是否值得新开仓买入，以及需要等待的买入触发条件",
+    ]
+    if target:
+        watch_lines.append(f"- 目标价: {target}")
+    if stop:
+        watch_lines.append(f"- 止损价: {stop}")
+    if reason:
+        watch_lines.append(f"- 关注原因: {reason}")
+    if note:
+        watch_lines.append(f"- 关注备注: {note}")
+
+    note_lines = []
+    for item in notes[:5]:
+        ts = (item.get("timestamp") or "")[:10]
+        item_note = item.get("note") or ""
+        if item_note:
+            note_lines.append(f"- {ts}: {item_note}")
+    notes_text = "\n".join(note_lines) if note_lines else "- 暂无关注记录"
+
+    if analysis_type == "quick":
+        return f"""快速分析买入候选 {title}：
+
+## 关注信息
+{chr(10).join(watch_lines)}
+
+## 最近关注记录
+{notes_text}
+
+请简要回答：
+1. 现在能不能买？如果不能，差在哪个确认条件？
+2. “疑似触底/反弹”这一观察是否有价格、成交量或趋势数据支撑？
+3. 合理的买入触发条件是什么？
+4. 买入后应如何设置止损/失效条件？
+"""
+
+    return f"""请使用 invest-research-skills 的 stock-fundamental + tradingview-quantitative 框架分析买入候选 {title}：
+
+## 关注信息
+{chr(10).join(watch_lines)}
+
+## 最近关注记录
+{notes_text}
+
+## 分析要求
+1. 基本面：业务模式、盈利来源、竞争格局、财务质量
+2. 技术面：趋势位置、支撑/压力、成交量、是否具备触底反弹确认
+3. 买入判断：当前是否可以买；如果不买，需要等待什么条件
+4. 交易计划：候选买入区间、分批方式、止损/失效位置、跟踪目标
+5. 风险与失效：哪些变化说明买入假设失效
+6. 跟踪清单：后续需要关注的价格、财报、行业或事件指标
+
+请给出具体数据支撑的结论，不要空泛描述。
+"""
+
+
+def find_watch(conn, query: str) -> Optional[dict[str, Any]]:
+    """按代码或名称查找关注标的。"""
+    row = conn.execute(
+        """
+        SELECT * FROM watchlist
+        WHERE status != 'removed'
+          AND (ts_code = ? OR name = ? OR name LIKE ?)
+        ORDER BY priority DESC, updated_at DESC
+        LIMIT 1
+        """,
+        (query, query, f"%{query}%"),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def get_watch_notes(conn, ts_code: str, limit: int = 20) -> list[dict[str, Any]]:
+    """读取关注记录。"""
+    cursor = conn.execute(
+        """
+        SELECT * FROM watch_notes
+        WHERE ts_code = ?
+        ORDER BY timestamp DESC, id DESC
+        LIMIT ?
+        """,
+        (ts_code, limit),
+    )
+    return [dict(row) for row in cursor.fetchall()]
+
+
 def generate_batch_analysis_prompt(positions: list[dict[str, Any]]) -> str:
     """生成批量分析提示词"""
     if not positions:
@@ -112,6 +292,86 @@ def generate_batch_analysis_prompt(positions: list[dict[str, Any]]) -> str:
 - 近期需跟踪的关键事件/数据
 
 请基于最新数据分析，给出具体、可操作的建议。"""
+
+
+def build_context_packet(
+    conn,
+    positions: list[dict[str, Any]],
+    query: str,
+) -> dict[str, Any]:
+    """生成供 agent 直接分析使用的本地上下文包。"""
+    resolved_code, position, watch = resolve_target(conn, positions, query)
+    notes = get_watch_notes(conn, resolved_code, limit=10)
+    trades = get_recent_trades(conn, resolved_code, limit=10)
+    mode = "holding" if position else "watch_candidate" if watch else "unknown"
+    return {
+        "query": query,
+        "resolved_code": resolved_code,
+        "mode": mode,
+        "position": position,
+        "watch": watch,
+        "watch_notes": notes,
+        "recent_trades": trades,
+        "analysis_contract": {
+            "holding": "分析继续持有、加仓、减仓、风险和失效条件",
+            "watch_candidate": "分析是否值得新开仓买入、买入触发条件、仓位计划和失效条件",
+            "unknown": "未匹配到本地持仓或关注记录，只能做通用标的研究",
+        }.get(mode),
+        "required_framework": [
+            "先结论后依据",
+            "业务模式与盈利来源",
+            "竞争对手与相对位置",
+            "财务质量验证",
+            "外部驱动变量与传导链",
+            "估值/交易动作仅在用户请求或本地持仓场景下输出",
+            "给出可观察的失效条件和跟踪指标",
+        ],
+        "framework_refs": [
+            "references/invest-research-flow.md",
+            "references/invest-research-skills/stock-fundamental/SKILL.md",
+            "references/invest-research-skills/stock-fundamental/references/business-model-types.md",
+            "references/invest-research-skills/stock-fundamental/references/financial-diagnostics.md",
+            "references/invest-research-skills/stock-fundamental/references/competitor-matrix.md",
+            "references/invest-research-skills/stock-fundamental/references/profit-transmission.md",
+            "references/invest-research-skills/shared-research-context/references/research-methodology.md",
+            "references/invest-research-skills/shared-research-context/references/data-quality-levels.md",
+            "references/invest-research-skills/shared-research-context/references/moat-framework.md",
+            "references/invest-research-skills/shared-research-context/references/lifecycle-framework.md",
+            "references/invest-research-skills/sector-research/SKILL.md",
+        ],
+    }
+
+
+def print_context_packet(packet: dict[str, Any]) -> None:
+    """以人类可读格式输出本地上下文包。"""
+    print(f"标的: {packet['resolved_code']}")
+    print(f"模式: {packet['mode']}")
+    if packet.get("position"):
+        pos = packet["position"]
+        print("\n持仓:")
+        print(f"- 数量: {pos.get('quantity')}")
+        print(f"- 均价: {pos.get('avg_cost')}")
+        print(f"- 成本: {pos.get('total_cost')}")
+        print(f"- 货币: {pos.get('currency')}")
+    if packet.get("watch"):
+        watch = packet["watch"]
+        print("\n关注:")
+        print(f"- 名称: {watch.get('name') or '-'}")
+        print(f"- 分类: {watch.get('category') or '-'}")
+        print(f"- 目标价: {watch.get('target_price') or '-'}")
+        print(f"- 止损价: {watch.get('stop_loss') or '-'}")
+        print(f"- 原因: {watch.get('reason') or '-'}")
+    if packet.get("watch_notes"):
+        print("\n关注记录:")
+        for note in packet["watch_notes"]:
+            print(f"- {(note.get('timestamp') or '')[:10]} {note.get('note') or '-'}")
+    if packet.get("recent_trades"):
+        print("\n最近交易:")
+        for trade in packet["recent_trades"]:
+            print(
+                f"- {(trade.get('timestamp') or '')[:10]} "
+                f"{trade.get('side')} {trade.get('quantity')} @ {trade.get('price')}"
+            )
 
 
 def generate_tradingview_links(positions: list[dict[str, Any]]) -> list[dict[str, str]]:
@@ -169,8 +429,11 @@ def print_analysis_menu(positions: list[dict[str, Any]]):
     print("-" * 60)
     print("  analyze_holdings.py prompt          # 生成组合分析提示词")
     print("  analyze_holdings.py prompt <代码>   # 生成单股分析提示词")
-    print("  analyze_holdings.py links           # 生成 TradingView 链接")
+    print("  analyze_holdings.py quick <代码>    # 生成快速分析提示词")
+    print("  analyze_holdings.py context <代码>  # 输出本地分析上下文")
     print("  analyze_holdings.py tasks           # 生成分析任务清单")
+    print("  analyze_holdings.py links           # 旧入口：生成 TradingView 链接")
+    print("  TradingView 链接/报告建议使用 analyze_positions.py")
     print("=" * 60 + "\n")
 
 
@@ -180,7 +443,7 @@ def main():
                         default=os.path.expanduser(os.environ.get("STJ_WORKSPACE", "~/.trade-journal")),
                         help="工作目录 (默认: STJ_WORKSPACE 或 ~/.trade-journal)")
     parser.add_argument("command", nargs="?", default="menu",
-                        choices=["menu", "prompt", "links", "tasks", "quick"],
+                        choices=["menu", "prompt", "links", "tasks", "quick", "context"],
                         help="命令")
     parser.add_argument("ts_code", nargs="?", help="股票代码（可选）")
     parser.add_argument("--type", "-t", default="fundamental",
@@ -196,7 +459,6 @@ def main():
 
     # 获取持仓
     positions = get_positions(conn)
-    conn.close()
 
     if args.command == "menu":
         print_analysis_menu(positions)
@@ -204,9 +466,13 @@ def main():
     elif args.command == "prompt":
         if args.ts_code:
             # 单股分析
-            pos = next((p for p in positions if p["ts_code"] == args.ts_code), None)
+            resolved_code, pos, watch = resolve_target(conn, positions, args.ts_code)
             if pos:
                 prompt = generate_analysis_prompt(pos, args.type)
+                print(prompt)
+            elif watch:
+                notes = get_watch_notes(conn, watch["ts_code"], limit=5)
+                prompt = generate_watch_analysis_prompt(watch, notes, args.type)
                 print(prompt)
             else:
                 print(f"未找到持仓: {args.ts_code}")
@@ -218,14 +484,30 @@ def main():
     elif args.command == "quick":
         # 快速分析提示词
         if args.ts_code:
-            pos = next((p for p in positions if p["ts_code"] == args.ts_code), None)
+            resolved_code, pos, watch = resolve_target(conn, positions, args.ts_code)
             if pos:
                 prompt = generate_analysis_prompt(pos, "quick")
                 print(prompt)
+            elif watch:
+                notes = get_watch_notes(conn, watch["ts_code"], limit=5)
+                prompt = generate_watch_analysis_prompt(watch, notes, "quick")
+                print(prompt)
+            else:
+                print(f"未找到持仓或关注标的: {args.ts_code}")
         else:
             for pos in positions:
                 print(f"\n### {pos['ts_code']}")
                 print(generate_analysis_prompt(pos, "quick"))
+
+    elif args.command == "context":
+        if not args.ts_code:
+            print("请提供股票代码或名称")
+        else:
+            packet = build_context_packet(conn, positions, args.ts_code)
+            if args.json:
+                print(json.dumps(packet, indent=2, ensure_ascii=False))
+            else:
+                print_context_packet(packet)
 
     elif args.command == "links":
         links = generate_tradingview_links(positions)
@@ -249,6 +531,8 @@ def main():
             print(f"    - [ ] 更新目标价/止损价")
         print("\n" + "=" * 60)
         print(f"\n总计: {len(positions)} 只股票待分析\n")
+
+    conn.close()
 
 
 if __name__ == "__main__":
