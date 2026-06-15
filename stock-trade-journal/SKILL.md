@@ -13,7 +13,7 @@ when: |
   - "同步IBKR" "同步盈透"
   - "查询持仓" "持仓盈亏" "我的持仓"
   - "关注 XXX" "加入关注" "关注列表"
-  - "分析持仓" "TradingView" "看图" "打开图表"
+  - "分析持仓" "看图" "打开图表"
   - 或直接使用 /stj 命令
 examples:
   - "/stj 记录：NVDA.US 在130买入100股"
@@ -48,11 +48,8 @@ metadata:
 | `/stj 关注` | 添加关注 | `/stj 关注 AVGO.US --target 200` |
 | `/stj 关注记录` | 添加观察笔记 | `/stj 关注记录 0700.HK 买入观望` |
 | `/stj 关注列表` | 查看关注 | `/stj 关注列表` |
-| `/stj ah 分析` | 直接分析持仓/关注标的 | `/stj ah RDDT分析` |
-| `/stj ah` | analyze_holdings 提示词/任务清单 | `/stj ah prompt RDDT.US` |
-| `/stj ah 腾讯` | 关注标的买入候选分析提示词 | `/stj ah prompt 腾讯` |
-| `/stj analyze_hoding` | analyze_holdings 拼写容错别名 | `/stj analyze_hoding prompt` |
-| `/stj tv` | TradingView 链接/报告/打开图表 | `/stj tv link RDDT.US` |
+| `/stj 分析持仓` | 持仓盈利、组合风险、关注列表和操作建议 | `/stj 分析一下我的持仓还有关注` |
+| `/stj 分析 <标的>` | 直接分析单只持仓/关注标的 | `/stj 分析 RDDT.US` |
 | `/stj 看图` | 生成带交易/关注标注的本地图表 | `/stj 看图 RDDT.US` |
 | `/stj 同步` | 同步IBKR | `/stj 同步IBKR` |
 
@@ -138,6 +135,44 @@ python3 scripts/record_trade.py \
   --quantity 100 \
   --note "看好AI业务"
 ```
+
+默认手动记录交易只写入用户提供的交易笔记，不强制追问自定义画像问题。
+
+### 可选：交易录入 profile
+
+自定义交易画像不属于主流程。只有用户明确说“用 profile”“按我的画像记录”“用 <画像名> 录入”等类似表达时，才读取 `profiles/` 下对应 profile。
+
+Profile 是可替换的外部输入，按用户指定名称选择；如果用户只说“我的画像”且 `profiles/` 下只有一个 profile，可读取该 profile。若有多个 profile 且未指定，先让用户指定，不要默认套用某个画像。
+
+```text
+profiles/<profile-slug>.md
+```
+
+启用 profile 后，按所选 profile 追问缺失字段，并把回答合并进 `--note`，不要新增数据库字段，也不要改变 `record_trade.py` 的默认参数。
+
+写入 `--note` 的推荐格式：
+
+```text
+<原始备注>；<profile 字段1>: <答案>；<profile 字段2>: <答案>；...
+```
+
+### 可选：生成交易 profile
+
+当用户说“生成交易画像”“根据我的交易记录生成 profile”“把我的策略沉淀成 profile”“新增交易 profile”等类似表达时，走 profile 生成分支。
+
+流程文件：
+
+```text
+references/trade-profile-generation-flow.md
+```
+
+处理原则：
+
+- 先读本地 `trades`、`positions`、`watchlist`、`watch_notes`，总结交易行为画像。
+- 判断现有 profile 是否足够；不要默认新建一堆 profile。
+- 如果只是询问建议，先输出 profile 草案，不写文件。
+- 只有用户明确要求“保存/创建/写入 profile”时，才写入 `profiles/<slug>.md`，并同步安装副本。
+- 生成的 profile 必须保持轻量，默认必填问题不超过 5 个。
 
 输出：
 ```
@@ -263,8 +298,8 @@ python3 scripts/sync_ibkr.py --local
 | `query_trades.py` | 查询交易记录 |
 | `query_positions.py` | 查询持仓 |
 | `watchlist.py` | 关注列表管理 |
+| `analyze_holdings.py` | 本地持仓/关注分析上下文 |
 | `render_chart.py` | 生成带交易/关注标注的本地 ECharts 图表 |
-| `analyze_positions.py` | TradingView 分析 |
 | `sync_ibkr.py` | IBKR API 同步 |
 
 ---
@@ -356,153 +391,52 @@ python3 scripts/watchlist.py note <代码> --note <观察笔记>
 
 ---
 
-## TradingView 持仓分析
+## 分析入口
 
-提供 TradingView 图表链接生成和持仓分析功能。
-
-### 与 analyze_holdings 的区别
-
-| 入口 | 脚本 | 用途 | 示例 |
-|------|------|------|------|
-| `/stj ah ...` | `analyze_holdings.py` + `references/invest-research-flow.md` | 直接分析或生成提示词；持仓用于持有分析，关注标的用于买入候选分析 | `/stj ah RDDT分析` |
-| `/stj tv ...` | `analyze_positions.py` | 生成 TradingView 链接、打开图表、生成持仓报告 | `/stj tv link 0700.HK` |
-
-优先按显式前缀区分：用户说 `ah`、`analyze_holdings`、`analyze_hoding`、`分析提示词` 时走 `analyze_holdings.py`；用户说 `tv`、`TradingView`、`图表链接`、`持仓报告` 时走 `analyze_positions.py`。
-
-### 内置投研框架
-
-`stock-trade-journal` 已内置 `invest-research-skills` 的运行时材料，不依赖外部 skill 是否安装：
+默认分析入口是 `references/invest-research-flow.md`。组合级持仓/关注复盘还必须读取：
 
 ```text
-references/invest-research-skills/
-├── SKILL.md
-├── stock-fundamental/
-│   ├── SKILL.md
-│   ├── assets/report-template.md
-│   └── references/
-├── sector-research/
-│   ├── SKILL.md
-│   ├── assets/
-│   ├── references/
-│   └── scripts/calc.py
-├── shared-research-context/
-│   ├── SKILL.md
-│   └── references/
-└── research-review/
-    ├── SKILL.md
-    ├── assets/
-    └── references/
+references/portfolio-watch-analysis-flow.md
+profiles/<用户指定或当前适用的交易画像>.md
 ```
 
-直接分析时先读 `references/invest-research-flow.md`，再按任务需要加载上面的内部 reference。不要把这一步简化成“生成 prompt”。
+### 组合级持仓与关注复盘
 
-### ah 直接分析工作流
+当用户说“分析我的持仓”“持仓盈利”“操作推荐”“分析持仓还有关注”“看看关注列表能不能买”等请求时，直接产出分析结论，不要返回提示词，也不要用图表报告代替。
 
-当用户说 `/stj ah <标的>分析`、`/stj ah prompt <标的>分析`、`/stj ah analyze <标的>`、`/stj 分析 <标的>`、`/stj 看看 <标的>`、`买不买/持有吗` 时，不要只输出 prompt。先读取本地上下文，再联网获取最新数据，并按 `references/invest-research-flow.md` 直接产出结论。
+先读取本地数据：
 
-本地上下文命令：
+```bash
+python3 scripts/query_positions.py
+python3 scripts/watchlist.py ls
+```
+
+必要时按标的补读：
+
+```bash
+python3 scripts/query_trades.py --ts-code <代码> --limit 5
+python3 scripts/analyze_holdings.py context <代码或名称> --json
+```
+
+输出必须覆盖：
+
+- 当前持仓盈亏、原币种浮盈亏和人民币等值权重估算。
+- 组合集中度、同一公司跨市场暴露、行业/宏观/币种相关性。
+- 按所选交易画像约束动作：使用 profile 中定义的仓位上限、加仓/再买规则、失效条件和复盘要求；不要硬套某个固定画像。
+- 持仓处理：继续持有、加仓、减仓、退出条件和可观察失效条件。
+- 关注列表处理：是否可开仓、触发价、首笔仓位、加仓规则和失效条件。
+- 如果交易 note 没有所选 profile 要求的字段，指出需要补齐哪些字段。
+
+### 单股直接分析
+
+当用户说 `/stj 分析 <标的>`、`/stj 看看 <标的>`、`买不买/持有吗` 时，不要只输出提示词。先读取本地上下文，再联网获取最新数据，并按 `references/invest-research-flow.md` 直接产出结论。
 
 ```bash
 python3 scripts/analyze_holdings.py context RDDT.US --json
-python3 scripts/analyze_holdings.py context rddt分析 --json
 python3 scripts/analyze_holdings.py context 腾讯 --json
 ```
 
-输出要求：
-
-- 当前持仓：回答继续持有、加仓、减仓、风险和失效条件。
-- 关注标的：回答是否值得新开仓买入、买入触发条件、仓位计划和失效条件。
-- 必须结合最新行情、估值、财报/公告；优先官方 IR/SEC/交易所公告。
-- 先结论后依据，不要把 `invest-research-skills` 框架当成机械章节。
-
-### analyze_holdings 提示词/任务触发方式
-
-```bash
-# 组合分析提示词
-python3 scripts/analyze_holdings.py prompt
-
-# 单股分析提示词；支持代码或关注列表名称
-python3 scripts/analyze_holdings.py prompt 0700.HK
-python3 scripts/analyze_holdings.py prompt 腾讯
-
-# 快速分析提示词
-python3 scripts/analyze_holdings.py quick 0700.HK
-python3 scripts/analyze_holdings.py quick 腾讯
-
-# 本地分析上下文
-python3 scripts/analyze_holdings.py context 0700.HK --json
-
-# 分析任务清单
-python3 scripts/analyze_holdings.py tasks
-```
-
-对应自然语言：
-
-- `/stj ah prompt`
-- `/stj ah prompt 0700.HK`
-- `/stj ah prompt 腾讯`
-- `/stj ah RDDT分析`
-- `/stj ah prompt RDDT分析`
-- `/stj ah analyze RDDT.US`
-- `/stj ah quick 0700.HK`
-- `/stj ah quick 腾讯`
-- `/stj ah tasks`
-- `/stj analyze_hoding prompt`
-- `/stj 分析持仓`
-- `/stj 快速分析 0700.HK`
-
-只有用户显式使用 `prompt` 且没有“分析/看看/买不买/持有吗”等分析意图时，才返回脚本输出本身；用户说“分析”时直接执行上面的投研分析工作流。
-
-### TradingView 触发方式
-
-对应自然语言：
-
-- `/stj tv link`
-- `/stj tv link 0700.HK`
-- `/stj tv report`
-- `/stj tv open 0700.HK`
-- `/stj tv open all`
-
-对应脚本命令：
-
-```bash
-# 显示所有持仓的 TradingView 链接
-python3 scripts/analyze_positions.py link
-
-# 显示特定股票链接
-python3 scripts/analyze_positions.py link --ts-code AAPL.US
-
-# 批量打开 TradingView 图表（默认 5 个）
-python3 scripts/analyze_positions.py tradingview
-
-# 打开所有持仓图表
-python3 scripts/analyze_positions.py tv --all
-
-# 指定时间周期 (1,5,15,30,60,240,D,W,M)
-python3 scripts/analyze_positions.py tv --interval W
-
-# 生成持仓分析报告
-python3 scripts/analyze_positions.py report
-
-# 导出报告到文件
-python3 scripts/analyze_positions.py report -o report.md
-```
-
-### 代码转换规则
-
-| 本地格式 | TradingView 格式 |
-|----------|------------------|
-| AAPL.US | NASDAQ:AAPL |
-| 0700.HK | HKEX:0700 |
-| 600519.SH | SSE:600519 |
-| 000001.SZ | SZSE:000001 |
-
-### 分析报告内容
-
-- 📊 持仓概览（数量、总成本、已实现盈亏）
-- 🌍 按市场分布统计
-- 📈 持仓详情表格（含 TradingView 链接）
-- 🔗 快捷链接汇总
+当前持仓回答继续持有、加仓、减仓、风险和失效条件；关注标的回答是否值得新开仓、买入触发条件、仓位计划和失效条件。
 
 ---
 
@@ -547,38 +481,6 @@ python3 scripts/render_chart.py RDDT.US --price-json prices.json
 - `positions` + 最新收盘价：自动计算市值、总体浮盈和收益率
 - `watchlist`：关注列表只管理标的状态、分类、目标价、止损价等
 - `watch_notes`：关注记录是无买卖行为的观察笔记，会按日期挂到图上并支持 hover
-
----
-
-## 与 tradingview-quantitative 集成
-
-如果已安装 `tradingview-quantitative` skill，可配合使用获取更强大的分析能力：
-
-### 持仓技术分析
-
-```
-# 1. 查询持仓
-python3 scripts/query_positions.py --json
-
-# 2. 使用 tradingview-quantitative 分析（在 Claude 中）
-请分析我的持仓股票：AAPL.US, NVDA.US, 0700.HK 的技术面
-```
-
-### 可用的 TradingView 工具
-
-| 工具 | 用途 | 示例 |
-|------|------|------|
-| `get_quote` | 实时报价 | 获取 AAPL 最新价格 |
-| `get_price` | K线数据 | 获取日/周线图 |
-| `get_ta` | 技术分析 | RSI、MACD 等指标 |
-| `get_news` | 新闻资讯 | 相关新闻动态 |
-| `search_market` | 搜索标的 | 查找股票代码 |
-
-### 推荐工作流
-
-1. **日常检视**: 查持仓 → TradingView 技术分析 → 识别风险
-2. **交易决策**: 记录交易 → 更新持仓 → 图表确认
-3. **周末复盘**: 生成报告 → 批量分析 → 调整策略
 
 ---
 
