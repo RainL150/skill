@@ -24,6 +24,7 @@ Claude 全局安装时，主 skill 脚本目录为：
 | `/stj 持仓` | 查看持仓 |
 | `/stj 关注 AVGO.US` | 添加关注 |
 | `/stj 关注记录 0700.HK 买入观望` | 添加观察笔记 |
+| `/stj 笔记 CORN.US holding_review 继续持有到7月中旬` | 添加不交易复盘笔记 |
 | `/stj 关注列表` | 查看关注列表 |
 | `/stj 生成交易画像` | 根据交易记录生成/建议交易 profile |
 | `/stj 分析持仓` | 持仓盈利、组合风险、关注列表和操作建议 |
@@ -70,7 +71,7 @@ Profile 是可替换的外部输入，按用户指定名称选择；如果用户
 
 处理原则：
 
-- 先读本地 `trades`、`positions`、`watchlist`、`watch_notes`，总结交易行为画像。
+- 先读本地 `trades`、`positions`、`watchlist`、`notes`，总结交易行为画像。
 - 判断现有 profile 是否足够；不要默认新建一堆 profile。
 - 如果只是询问建议，先输出 profile 草案，不写文件。
 - 只有用户明确要求“保存/创建/写入 profile”时，才写入 `~/.claude/skills/stock-trade-journal/profiles/<slug>.md`，并同步源 skill 的 `profiles/<slug>.md`。
@@ -90,10 +91,26 @@ cd ~/.claude/skills/stock-trade-journal/scripts && python3 watchlist.py <add/ls/
 
 ### 记录关注笔记
 ```bash
-cd ~/.claude/skills/stock-trade-journal/scripts && python3 watchlist.py note <代码> --note <笔记>
+cd ~/.claude/skills/stock-trade-journal/scripts && python3 watchlist.py note <代码> --type watch_observation --note <笔记>
 ```
 
-关注列表和关注记录分开：关注列表表示标的状态，关注记录是类似交易记录的观察笔记，没有买卖方向、数量和价格。
+关注列表和标的笔记分开：关注列表表示标的状态，标的笔记没有买卖方向、数量和价格。
+
+### 记录不交易笔记
+不交易时不要写入 `trades.note`。统一写入 `notes`，且每条都绑定具体标的，不记录组合笔记。
+
+`note_type` 只允许三类：
+
+| note_type | 用途 |
+|------|------|
+| `trade_decision` | 交易当天的决策记录，由交易录入自动写入 |
+| `watch_observation` | 未持仓或未交易时的观察记录 |
+| `holding_review` | 已持仓但不交易时的复盘记录 |
+
+```bash
+cd ~/.claude/skills/stock-trade-journal/scripts && python3 notes.py add <代码> --type holding_review --note <复盘笔记>
+cd ~/.claude/skills/stock-trade-journal/scripts && python3 notes.py list <代码>
+```
 
 ### 持仓与关注组合分析
 当用户说“分析我的持仓”“持仓盈利”“分析持仓还有关注”“给我操作推荐”“看看关注列表能不能买”等组合级请求时，必须直接分析，不要输出提示词，也不要用图表报告代替。

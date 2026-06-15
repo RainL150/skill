@@ -8,7 +8,7 @@ import os
 from datetime import datetime
 from typing import Any
 
-from db_schema import ensure_db, get_position, parse_ts_code, update_position_after_trade
+from db_schema import add_note, ensure_db, get_position, parse_ts_code, update_position_after_trade
 from journal_markdown import append_trade_md
 
 
@@ -73,7 +73,7 @@ def main() -> None:
     }
 
     # 写入交易记录
-    conn.execute("""
+    cursor = conn.execute("""
         INSERT INTO trades(
             ts_code, exchange, side, price, quantity, amount,
             position_before, position_after, stop_loss, take_profit,
@@ -85,7 +85,20 @@ def main() -> None:
         row["stop_loss"], row["take_profit"], row["note"], row["timestamp"],
         row["source"], row["currency"]
     ))
+    trade_id = cursor.lastrowid
     conn.commit()
+
+    if trade_note:
+        add_note(
+            conn,
+            args.ts_code,
+            trade_note,
+            note_type="trade_decision",
+            timestamp=args.timestamp,
+            source="manual",
+            exchange=exchange,
+            related_trade_id=trade_id,
+        )
 
     # 更新持仓表
     update_position_after_trade(conn, row)

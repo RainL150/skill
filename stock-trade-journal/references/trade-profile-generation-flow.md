@@ -21,7 +21,7 @@ sqlite3 ~/.trade-journal/results/trade-journal/db/trades.db '.tables'
 sqlite3 ~/.trade-journal/results/trade-journal/db/trades.db "select * from trades order by timestamp;"
 sqlite3 ~/.trade-journal/results/trade-journal/db/trades.db "select * from positions;"
 sqlite3 ~/.trade-journal/results/trade-journal/db/trades.db "select * from watchlist;"
-sqlite3 ~/.trade-journal/results/trade-journal/db/trades.db "select * from watch_notes order by timestamp;"
+sqlite3 ~/.trade-journal/results/trade-journal/db/trades.db "select * from notes order by timestamp;"
 ```
 
 如需分析收益归因、回撤、买点质量，再使用行情/财务数据能力补充；不要为了生成 profile 默认联网。

@@ -6,7 +6,8 @@
 1. trades - 交易记录表
 2. positions - 持仓表（与交易联动）
 3. watchlist - 关注列表
-4. watch_notes - 关注记录/观察笔记
+4. notes - 统一标的笔记
+5. watch_notes - 旧关注记录表（保留兼容，读取已迁移到 notes）
 """
 
 import os
@@ -28,9 +29,27 @@ IMPORT_NOTE_MARKERS = (
     "listing_exchange=",
 )
 
+NOTE_TYPES = ("trade_decision", "watch_observation", "holding_review")
+
 
 def _table_columns(conn: sqlite3.Connection, table: str) -> list[str]:
     return [row["name"] for row in conn.execute(f"PRAGMA table_info({table})")]
+
+
+def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (table,),
+    ).fetchone()
+    return row is not None
+
+
+def normalize_note_type(note_type: str) -> str:
+    """校验并规整统一笔记类型。"""
+    value = (note_type or "").strip()
+    if value not in NOTE_TYPES:
+        raise ValueError(f"invalid note_type: {note_type}. expected one of {', '.join(NOTE_TYPES)}")
+    return value
 
 
 def _clean_note(value: Any) -> str:
@@ -143,6 +162,23 @@ def ensure_db(db_path: str) -> sqlite3.Connection:
         )
     """)
 
+    # 统一标的笔记表：所有非组合笔记按 note_type 区分。
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS notes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts_code TEXT NOT NULL,
+            exchange TEXT,
+            note_type TEXT NOT NULL CHECK (
+                note_type IN ('trade_decision', 'watch_observation', 'holding_review')
+            ),
+            note TEXT NOT NULL,
+            related_trade_id INTEGER,
+            timestamp TEXT NOT NULL,
+            source TEXT DEFAULT 'manual',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
     conn.commit()
 
     # 迁移：为旧表添加新列/移除旧列
@@ -165,6 +201,10 @@ def _create_indexes(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_watchlist_category ON watchlist(category)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_watch_notes_ts_code ON watch_notes(ts_code)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_watch_notes_timestamp ON watch_notes(timestamp)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_notes_ts_code ON notes(ts_code)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_notes_note_type ON notes(note_type)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_notes_timestamp ON notes(timestamp)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_notes_related_trade_id ON notes(related_trade_id)")
 
 
 def _migrate_tables(conn: sqlite3.Connection) -> None:
@@ -193,6 +233,7 @@ def _migrate_tables(conn: sqlite3.Connection) -> None:
 
     _migrate_trades_note_only(conn)
     _migrate_watchlist_note_timeline(conn)
+    _migrate_notes_table(conn)
 
     conn.commit()
 
@@ -338,6 +379,171 @@ def _migrate_watchlist_note_timeline(conn: sqlite3.Connection) -> None:
             ),
         )
     conn.execute("DROP TABLE watchlist_legacy")
+
+
+def _watch_note_type_from_source(source: Any) -> str:
+    """把旧 watch_notes 记录映射到统一笔记类型。"""
+    value = str(source or "").strip().lower()
+    if value == "holding_review" or value.startswith("holding_review"):
+        return "holding_review"
+    return "watch_observation"
+
+
+def _resolve_note_exchange(conn: sqlite3.Connection, ts_code: str, exchange: Any = None) -> str:
+    """笔记交易所优先继承本地持仓/关注中的真实交易所。"""
+    fallback = parse_ts_code(ts_code)[2]
+    current = str(exchange or "").strip()
+
+    pos = conn.execute(
+        "SELECT exchange FROM positions WHERE ts_code = ? AND exchange IS NOT NULL AND exchange != ''",
+        (ts_code,),
+    ).fetchone()
+    if pos and (not current or current == fallback):
+        return pos["exchange"]
+
+    watch = conn.execute(
+        "SELECT exchange FROM watchlist WHERE ts_code = ? AND exchange IS NOT NULL AND exchange != ''",
+        (ts_code,),
+    ).fetchone()
+    if watch and (not current or current == fallback):
+        return watch["exchange"]
+
+    return current or fallback
+
+
+def _note_exists(
+    conn: sqlite3.Connection,
+    ts_code: str,
+    note_type: str,
+    note: str,
+    timestamp: str,
+    related_trade_id: Any = None,
+) -> bool:
+    if related_trade_id is not None:
+        row = conn.execute(
+            """
+            SELECT 1 FROM notes
+            WHERE note_type = ? AND related_trade_id = ?
+            LIMIT 1
+            """,
+            (note_type, related_trade_id),
+        ).fetchone()
+        if row:
+            return True
+
+    row = conn.execute(
+        """
+        SELECT 1 FROM notes
+        WHERE ts_code = ? AND note_type = ? AND note = ? AND timestamp = ?
+        LIMIT 1
+        """,
+        (ts_code, note_type, note, timestamp),
+    ).fetchone()
+    return row is not None
+
+
+def _migrate_notes_table(conn: sqlite3.Connection) -> None:
+    """把交易笔记和旧关注笔记迁入统一 notes 表。"""
+    trade_rows = [
+        dict(row)
+        for row in conn.execute(
+            """
+            SELECT id, ts_code, exchange, note, timestamp, source, created_at
+            FROM trades
+            WHERE note IS NOT NULL AND TRIM(note) != ''
+            ORDER BY id
+            """
+        )
+    ]
+    for row in trade_rows:
+        note = _clean_note(row.get("note"))
+        if not note:
+            continue
+        timestamp = row.get("timestamp") or datetime.now().isoformat()
+        if _note_exists(conn, row["ts_code"], "trade_decision", note, timestamp, row.get("id")):
+            continue
+        conn.execute(
+            """
+            INSERT INTO notes (
+                ts_code, exchange, note_type, note, related_trade_id,
+                timestamp, source, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                row["ts_code"],
+                _resolve_note_exchange(conn, row["ts_code"], row.get("exchange")),
+                "trade_decision",
+                note,
+                row.get("id"),
+                timestamp,
+                row.get("source") or "trade_migration",
+                row.get("created_at") or datetime.now().isoformat(),
+            ),
+        )
+
+    _migrate_legacy_watch_notes(conn)
+    _refresh_note_exchanges(conn)
+
+
+def _migrate_legacy_watch_notes(conn: sqlite3.Connection) -> None:
+    """把旧 watch_notes 迁入统一 notes 表。"""
+    if not _table_exists(conn, "watch_notes"):
+        return
+
+    watch_rows = [
+        dict(row)
+        for row in conn.execute(
+            """
+            SELECT id, ts_code, exchange, note, timestamp, source, created_at
+            FROM watch_notes
+            WHERE note IS NOT NULL AND TRIM(note) != ''
+            ORDER BY id
+            """
+        )
+    ]
+    for row in watch_rows:
+        note = _clean_note(row.get("note"))
+        if not note:
+            continue
+        note_type = _watch_note_type_from_source(row.get("source"))
+        timestamp = row.get("timestamp") or datetime.now().isoformat()
+        if _note_exists(conn, row["ts_code"], note_type, note, timestamp):
+            continue
+        conn.execute(
+            """
+            INSERT INTO notes (
+                ts_code, exchange, note_type, note, related_trade_id,
+                timestamp, source, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                row["ts_code"],
+                _resolve_note_exchange(conn, row["ts_code"], row.get("exchange")),
+                note_type,
+                note,
+                None,
+                timestamp,
+                row.get("source") or "watch_notes_migration",
+                row.get("created_at") or datetime.now().isoformat(),
+            ),
+        )
+
+
+def _refresh_note_exchanges(conn: sqlite3.Connection) -> None:
+    """用持仓/关注里的真实交易所修正 notes 中的默认推断值。"""
+    rows = [
+        dict(row)
+        for row in conn.execute(
+            "SELECT id, ts_code, exchange FROM notes ORDER BY id"
+        )
+    ]
+    for row in rows:
+        resolved = _resolve_note_exchange(conn, row["ts_code"], row.get("exchange"))
+        if resolved and resolved != row.get("exchange"):
+            conn.execute(
+                "UPDATE notes SET exchange = ? WHERE id = ?",
+                (resolved, row["id"]),
+            )
 
 
 def parse_ts_code(ts_code: str) -> tuple[str, str, str]:
@@ -526,6 +732,118 @@ def get_position(conn: sqlite3.Connection, ts_code: str) -> Optional[dict[str, A
     cursor = conn.execute("SELECT * FROM positions WHERE ts_code = ?", (ts_code,))
     row = cursor.fetchone()
     return dict(row) if row else None
+
+
+def add_note(
+    conn: sqlite3.Connection,
+    ts_code: str,
+    note: str,
+    note_type: str,
+    timestamp: Optional[str] = None,
+    source: str = "manual",
+    exchange: Optional[str] = None,
+    related_trade_id: Optional[int] = None,
+) -> dict[str, Any]:
+    """写入统一标的笔记。"""
+    clean_note = _clean_note(note)
+    if not clean_note:
+        return {"success": False, "ts_code": ts_code, "message": "笔记不能为空"}
+
+    normalized_type = normalize_note_type(note_type)
+    ts = timestamp or datetime.now().isoformat()
+    used_exchange = _resolve_note_exchange(conn, ts_code, exchange)
+    cursor = conn.execute(
+        """
+        INSERT INTO notes (
+            ts_code, exchange, note_type, note, related_trade_id,
+            timestamp, source, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            ts_code,
+            used_exchange,
+            normalized_type,
+            clean_note,
+            related_trade_id,
+            ts,
+            source,
+            datetime.now().isoformat(),
+        ),
+    )
+    conn.commit()
+    return {
+        "success": True,
+        "id": cursor.lastrowid,
+        "ts_code": ts_code,
+        "note_type": normalized_type,
+        "message": "已添加笔记",
+    }
+
+
+def get_notes(
+    conn: sqlite3.Connection,
+    ts_code: str,
+    note_type: Optional[str] = None,
+    limit: int = 20,
+    include_trade_decision: bool = True,
+) -> list[dict[str, Any]]:
+    """读取统一标的笔记。"""
+    params: list[Any] = [ts_code]
+    filters = ["ts_code = ?"]
+
+    if note_type:
+        filters.append("note_type = ?")
+        params.append(normalize_note_type(note_type))
+    elif not include_trade_decision:
+        filters.append("note_type != 'trade_decision'")
+
+    params.append(limit)
+    cursor = conn.execute(
+        f"""
+        SELECT *
+        FROM notes
+        WHERE {' AND '.join(filters)}
+        ORDER BY timestamp DESC, id DESC
+        LIMIT ?
+        """,
+        params,
+    )
+    return [dict(row) for row in cursor.fetchall()]
+
+
+def get_notes_map(
+    conn: sqlite3.Connection,
+    ts_codes: list[str],
+    note_type: Optional[str] = None,
+    limit: int = 10,
+    include_trade_decision: bool = True,
+) -> dict[str, list[dict[str, Any]]]:
+    """批量读取统一标的笔记，按代码分组。"""
+    return {
+        ts_code: get_notes(
+            conn,
+            ts_code,
+            note_type=note_type,
+            limit=limit,
+            include_trade_decision=include_trade_decision,
+        )
+        for ts_code in ts_codes
+    }
+
+
+def get_trade_decision_note(conn: sqlite3.Connection, trade_id: int) -> str:
+    """读取指定交易关联的交易决策笔记。"""
+    row = conn.execute(
+        """
+        SELECT note
+        FROM notes
+        WHERE note_type = 'trade_decision' AND related_trade_id = ?
+        ORDER BY timestamp DESC, id DESC
+        LIMIT 1
+        """,
+        (trade_id,),
+    ).fetchone()
+    return row["note"] if row else ""
 
 
 def take_position_snapshot(conn: sqlite3.Connection, snapshot_date: Optional[str] = None) -> int:

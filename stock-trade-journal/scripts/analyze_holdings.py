@@ -16,7 +16,7 @@ import re
 from datetime import datetime
 from typing import Any, Optional
 
-from db_schema import ensure_db, get_positions
+from db_schema import get_notes, get_trade_decision_note, ensure_db, get_positions
 
 
 IMPORT_MARKERS = (
@@ -68,7 +68,8 @@ def get_recent_trades(conn, ts_code: str, limit: int = 10) -> list[dict[str, Any
     trades = []
     for row in cursor.fetchall():
         item = dict(row)
-        item["note"] = clean_user_note(item.get("note"))
+        canonical_note = get_trade_decision_note(conn, item["id"])
+        item["note"] = clean_user_note(canonical_note or item.get("note"))
         trades.append(item)
     return trades
 
@@ -227,17 +228,8 @@ def find_watch(conn, query: str) -> Optional[dict[str, Any]]:
 
 
 def get_watch_notes(conn, ts_code: str, limit: int = 20) -> list[dict[str, Any]]:
-    """读取关注记录。"""
-    cursor = conn.execute(
-        """
-        SELECT * FROM watch_notes
-        WHERE ts_code = ?
-        ORDER BY timestamp DESC, id DESC
-        LIMIT ?
-        """,
-        (ts_code, limit),
-    )
-    return [dict(row) for row in cursor.fetchall()]
+    """读取统一标的笔记。保留旧函数名以兼容内部调用。"""
+    return get_notes(conn, ts_code, limit=limit)
 
 
 def get_watchlist(conn, status: str = "watching") -> list[dict[str, Any]]:
@@ -319,7 +311,7 @@ def build_watchlist_context_packet(
                 "ts_code": ts_code,
                 "mode": "holding" if position else "watch_candidate",
                 "watch": watch,
-                "watch_notes": notes,
+                "notes": notes,
                 "position": position,
                 "recent_trades": trades,
             }
@@ -364,7 +356,7 @@ def build_context_packet(
         "mode": mode,
         "position": position,
         "watch": watch,
-        "watch_notes": notes,
+        "notes": notes,
         "recent_trades": trades,
         "analysis_contract": {
             "holding": "分析继续持有、加仓、减仓、风险和失效条件",
@@ -414,10 +406,13 @@ def print_context_packet(packet: dict[str, Any]) -> None:
         print(f"- 分类: {watch.get('category') or '-'}")
         print(f"- 目标价: {watch.get('target_price') or '-'}")
         print(f"- 止损价: {watch.get('stop_loss') or '-'}")
-    if packet.get("watch_notes"):
-        print("\n关注记录:")
-        for note in packet["watch_notes"]:
-            print(f"- {(note.get('timestamp') or '')[:10]} {note.get('note') or '-'}")
+    if packet.get("notes"):
+        print("\n笔记:")
+        for note in packet["notes"]:
+            print(
+                f"- {(note.get('timestamp') or '')[:10]} "
+                f"[{note.get('note_type') or '-'}] {note.get('note') or '-'}"
+            )
     if packet.get("recent_trades"):
         print("\n最近交易:")
         for trade in packet["recent_trades"]:
@@ -439,12 +434,15 @@ def print_watchlist_context_packet(packet: dict[str, Any]) -> None:
             f"\n{index}. {watch['ts_code']} {name} "
             f"| {watch.get('category') or '-'} | 目标 {target} | 止损 {stop} | {item['mode']}"
         )
-        notes = item.get("watch_notes") or []
+        notes = item.get("notes") or []
         if notes:
             for note in notes:
-                print(f"   - {(note.get('timestamp') or '')[:10]} {note.get('note') or '-'}")
+                print(
+                    f"   - {(note.get('timestamp') or '')[:10]} "
+                    f"[{note.get('note_type') or '-'}] {note.get('note') or '-'}"
+                )
         else:
-            print("   - 暂无关注记录")
+            print("   - 暂无笔记")
         if item.get("position"):
             pos = item["position"]
             print(f"   - 持仓: {pos.get('quantity')} @ {pos.get('avg_cost')}")

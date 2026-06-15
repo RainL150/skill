@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 import argparse
 import os
-import sqlite3
+
+from db_schema import ensure_db, get_trade_decision_note
 
 
 def main() -> None:
@@ -16,10 +17,10 @@ def main() -> None:
     args = p.parse_args()
 
     db = os.path.join(args.workspace, "results", "trade-journal", "db", "trades.db")
-    conn = sqlite3.connect(db)
+    conn = ensure_db(db)
     rows = conn.execute(
         """
-        SELECT timestamp, ts_code, exchange, side, price, quantity, position_after, note
+        SELECT id, timestamp, ts_code, exchange, side, price, quantity, position_after, note
         FROM trades
         WHERE ts_code=?
         ORDER BY id DESC
@@ -27,10 +28,13 @@ def main() -> None:
         """,
         (args.ts_code, args.limit)
     ).fetchall()
-    conn.close()
-
     for r in rows:
-        print(" | ".join("" if v is None else str(v) for v in r))
+        values = list(r)
+        trade_id = values.pop(0)
+        values[-1] = get_trade_decision_note(conn, trade_id) or values[-1]
+        print(" | ".join("" if v is None else str(v) for v in values))
+
+    conn.close()
 
 
 if __name__ == "__main__":

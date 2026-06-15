@@ -19,7 +19,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from db_schema import ensure_db, parse_ts_code
+from db_schema import ensure_db, get_notes, get_trade_decision_note, parse_ts_code
 
 
 RANGE_TO_INTERVAL = {
@@ -393,28 +393,31 @@ def load_local_context(db_path: str, ts_code: str) -> dict[str, Any]:
 
         trade_rows = conn.execute(
             """
-            SELECT timestamp, side, price, quantity, stop_loss, take_profit, note, source, position_after
+            SELECT id, timestamp, side, price, quantity, stop_loss, take_profit, note, source, position_after
             FROM trades
             WHERE ts_code = ?
             ORDER BY timestamp ASC, id ASC
             """,
             (ts_code,),
         ).fetchall()
-        context["trades"] = [
-            {
-                "timestamp": parse_timestamp(row["timestamp"]),
-                "side": str(row["side"]).upper(),
-                "price": row["price"],
-                "quantity": row["quantity"],
-                "stopLoss": row["stop_loss"],
-                "takeProfit": row["take_profit"] or "",
-                "note": row["note"] or "",
-                "memo": combine_trade_memo(row["note"], row["stop_loss"], row["take_profit"]),
-                "source": row["source"] or "",
-                "positionAfter": row["position_after"],
-            }
-            for row in trade_rows
-        ]
+        trades = []
+        for row in trade_rows:
+            decision_note = get_trade_decision_note(conn, row["id"]) or row["note"] or ""
+            trades.append(
+                {
+                    "timestamp": parse_timestamp(row["timestamp"]),
+                    "side": str(row["side"]).upper(),
+                    "price": row["price"],
+                    "quantity": row["quantity"],
+                    "stopLoss": row["stop_loss"],
+                    "takeProfit": row["take_profit"] or "",
+                    "note": decision_note,
+                    "memo": combine_trade_memo(decision_note, row["stop_loss"], row["take_profit"]),
+                    "source": row["source"] or "",
+                    "positionAfter": row["position_after"],
+                }
+            )
+        context["trades"] = trades
 
         watch = row_to_dict(
             conn.execute(
@@ -436,19 +439,12 @@ def load_local_context(db_path: str, ts_code: str) -> dict[str, Any]:
                 "updatedAt": parse_timestamp(watch["updated_at"]),
             }
 
-        note_rows = conn.execute(
-            """
-            SELECT timestamp, note, source
-            FROM watch_notes
-            WHERE ts_code = ?
-            ORDER BY timestamp ASC, id ASC
-            """,
-            (ts_code,),
-        ).fetchall()
+        note_rows = list(reversed(get_notes(conn, ts_code, limit=200, include_trade_decision=False)))
         context["watchNotes"] = [
             {
                 "timestamp": parse_timestamp(row["timestamp"]),
                 "note": clean_note_part(row["note"]),
+                "noteType": row["note_type"],
                 "source": row["source"] or "",
             }
             for row in note_rows
