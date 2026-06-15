@@ -240,6 +240,20 @@ def get_watch_notes(conn, ts_code: str, limit: int = 20) -> list[dict[str, Any]]
     return [dict(row) for row in cursor.fetchall()]
 
 
+def get_watchlist(conn, status: str = "watching") -> list[dict[str, Any]]:
+    """读取关注列表。"""
+    cursor = conn.execute(
+        """
+        SELECT *
+        FROM watchlist
+        WHERE status = ?
+        ORDER BY priority DESC, added_at DESC, id DESC
+        """,
+        (status,),
+    )
+    return [dict(row) for row in cursor.fetchall()]
+
+
 def generate_batch_analysis_prompt(positions: list[dict[str, Any]]) -> str:
     """生成批量分析提示词"""
     if not positions:
@@ -285,6 +299,53 @@ def generate_batch_analysis_prompt(positions: list[dict[str, Any]]) -> str:
 - 近期需跟踪的关键事件/数据
 
 请基于最新数据分析，给出具体、可操作的建议。"""
+
+
+def build_watchlist_context_packet(
+    conn,
+    positions: list[dict[str, Any]],
+    notes_limit: int = 10,
+) -> dict[str, Any]:
+    """生成关注池分析上下文。"""
+    positions_by_code = {pos["ts_code"]: pos for pos in positions}
+    watches = []
+    for watch in get_watchlist(conn):
+        ts_code = watch["ts_code"]
+        notes = get_watch_notes(conn, ts_code, limit=notes_limit)
+        trades = get_recent_trades(conn, ts_code, limit=10)
+        position = positions_by_code.get(ts_code)
+        watches.append(
+            {
+                "ts_code": ts_code,
+                "mode": "holding" if position else "watch_candidate",
+                "watch": watch,
+                "watch_notes": notes,
+                "position": position,
+                "recent_trades": trades,
+            }
+        )
+    return {
+        "mode": "watchlist",
+        "count": len(watches),
+        "watches": watches,
+        "analysis_contract": "分析整个关注池的优先级、买入触发条件、事件风险和后续跟踪清单",
+        "required_framework": [
+            "先给关注池排序和动作结论",
+            "逐个标的结合关注笔记说明当前假设",
+            "区分基本面验证、技术面确认、事件落地三类触发条件",
+            "给出每个标的可观察的失效条件",
+            "最后输出下次复盘要看的数据/价格/公告",
+        ],
+        "framework_refs": [
+            "references/invest-research-flow.md",
+            "references/invest-research-skills/stock-fundamental/SKILL.md",
+            "references/invest-research-skills/sector-research/SKILL.md",
+            "references/invest-research-skills/shared-research-context/references/research-methodology.md",
+            "references/invest-research-skills/shared-research-context/references/data-quality-levels.md",
+            "references/invest-research-skills/shared-research-context/references/external-factors.md",
+            "references/invest-research-skills/shared-research-context/references/pitfalls.md",
+        ],
+    }
 
 
 def build_context_packet(
@@ -366,6 +427,29 @@ def print_context_packet(packet: dict[str, Any]) -> None:
             )
 
 
+def print_watchlist_context_packet(packet: dict[str, Any]) -> None:
+    """以人类可读格式输出关注池上下文。"""
+    print(f"关注池: {packet.get('count', 0)} 个标的")
+    for index, item in enumerate(packet.get("watches") or [], 1):
+        watch = item["watch"]
+        name = watch.get("name") or "-"
+        target = watch.get("target_price") or "-"
+        stop = watch.get("stop_loss") or "-"
+        print(
+            f"\n{index}. {watch['ts_code']} {name} "
+            f"| {watch.get('category') or '-'} | 目标 {target} | 止损 {stop} | {item['mode']}"
+        )
+        notes = item.get("watch_notes") or []
+        if notes:
+            for note in notes:
+                print(f"   - {(note.get('timestamp') or '')[:10]} {note.get('note') or '-'}")
+        else:
+            print("   - 暂无关注记录")
+        if item.get("position"):
+            pos = item["position"]
+            print(f"   - 持仓: {pos.get('quantity')} @ {pos.get('avg_cost')}")
+
+
 def generate_tradingview_links(positions: list[dict[str, Any]]) -> list[dict[str, str]]:
     """生成 TradingView 链接"""
     links = []
@@ -417,15 +501,10 @@ def print_analysis_menu(positions: list[dict[str, Any]]):
         print(f"  {i}. {ts_code:<12} {qty:>8} 股 @ {avg_cost:>10.2f}")
 
     print("\n" + "-" * 60)
-    print("  可用分析命令:")
+    print("  可用上下文命令:")
     print("-" * 60)
-    print("  analyze_holdings.py prompt          # 生成组合分析提示词")
-    print("  analyze_holdings.py prompt <代码>   # 生成单股分析提示词")
-    print("  analyze_holdings.py quick <代码>    # 生成快速分析提示词")
-    print("  analyze_holdings.py context <代码>  # 输出本地分析上下文")
-    print("  analyze_holdings.py tasks           # 生成分析任务清单")
-    print("  analyze_holdings.py links           # 旧入口：生成 TradingView 链接")
-    print("  TradingView 链接/报告建议使用 analyze_positions.py")
+    print("  analyze_holdings.py context <代码> --json    # 单只持仓/关注上下文")
+    print("  analyze_holdings.py watchlist --json         # 关注池上下文")
     print("=" * 60 + "\n")
 
 
@@ -435,13 +514,14 @@ def main():
                         default=os.path.expanduser(os.environ.get("STJ_WORKSPACE", "~/.trade-journal")),
                         help="工作目录 (默认: STJ_WORKSPACE 或 ~/.trade-journal)")
     parser.add_argument("command", nargs="?", default="menu",
-                        choices=["menu", "prompt", "links", "tasks", "quick", "context"],
+                        choices=["menu", "prompt", "links", "tasks", "quick", "context", "watchlist"],
                         help="命令")
     parser.add_argument("ts_code", nargs="?", help="股票代码（可选）")
     parser.add_argument("--type", "-t", default="fundamental",
                         choices=["fundamental", "sector", "quick"],
                         help="分析类型")
     parser.add_argument("--json", action="store_true", help="JSON 格式输出")
+    parser.add_argument("--notes-limit", type=int, default=10, help="关注池每个标的读取最近 N 条关注记录")
     args = parser.parse_args()
 
     # 连接数据库
@@ -500,6 +580,13 @@ def main():
                 print(json.dumps(packet, indent=2, ensure_ascii=False))
             else:
                 print_context_packet(packet)
+
+    elif args.command == "watchlist":
+        packet = build_watchlist_context_packet(conn, positions, notes_limit=args.notes_limit)
+        if args.json:
+            print(json.dumps(packet, indent=2, ensure_ascii=False))
+        else:
+            print_watchlist_context_packet(packet)
 
     elif args.command == "links":
         links = generate_tradingview_links(positions)
