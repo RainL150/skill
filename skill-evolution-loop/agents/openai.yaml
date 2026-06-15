@@ -1,0 +1,7 @@
+interface:
+  display_name: "Skill Evolution Loop"
+  short_description: "用 gates 和 case replay 迭代 skill"
+  default_prompt: "Use $skill-evolution-loop to analyze and improve this skill with frozen gates and case replay."
+
+policy:
+  allow_implicit_invocation: true
