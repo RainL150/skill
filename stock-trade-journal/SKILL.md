@@ -49,6 +49,8 @@ metadata:
 | `/stj 关注记录` | 添加观察笔记 | `/stj 关注记录 0700.HK 买入观望` |
 | `/stj 笔记` | 添加标的笔记 | `/stj 笔记 CORN.US holding_review 继续持有到7月中旬` |
 | `/stj 关注列表` | 查看关注 | `/stj 关注列表` |
+| `/stj 画像复盘` | 单标的画像复盘与纪律审计 | `/stj 画像复盘 RDDT.US` |
+| `/stj 更新交易画像` | 全记录画像更新复盘 | `/stj 更新交易画像` |
 | `/stj 分析持仓` | 持仓盈利、组合风险、关注列表和操作建议 | `/stj 分析一下我的持仓还有关注` |
 | `/stj 分析 <标的>` | 直接分析单只持仓/关注标的 | `/stj 分析 RDDT.US` |
 | `/stj 看图` | 生成带交易/关注标注的本地图表 | `/stj 看图 RDDT.US` |
@@ -199,6 +201,43 @@ references/trade-profile-generation-flow.md
 - 如果只是询问建议，先输出 profile 草案，不写文件。
 - 只有用户明确要求“保存/创建/写入 profile”时，才写入 `profiles/<slug>.md`，并同步安装副本。
 - 生成的 profile 必须保持轻量，默认必填问题不超过 5 个。
+- 生成 profile 必须包含可复制好习惯、需要规避的坏习惯、交易拦截器、交易前提醒卡和画像更新记录。
+- 好坏习惯判断必须标注证据等级；没有交易结果、持仓变化、复盘笔记或外部数据支持时，只能写成待验证假设。
+- 画像更新前必须先做完整复盘，不能直接覆盖 profile。
+
+### 可选：画像复盘与更新
+
+当用户说“画像复盘 <标的>”“复盘这只股票并更新画像”“更新交易画像”“根据所有记录优化画像”等类似表达时，读取：
+
+```text
+references/profile-evolution-review-flow.md
+profiles/<当前画像>.md
+```
+
+单标的复盘：
+
+```bash
+python3 scripts/profile_review.py single RDDT.US --json --write-docs
+```
+
+全记录画像更新复盘：
+
+```bash
+python3 scripts/profile_review.py all --json --write-docs
+```
+
+处理原则：
+
+- 每次更新画像前都必须先输出完整复盘结论。
+- 每次画像复盘/更新都必须默认生成两份 Markdown：
+  - 单标的复盘：`<代码>-self-portrait.md` + `<代码>-profile-evidence.md`；只生成局部证据包，不更新整体画像。
+  - 全记录复盘：`self-portrait-latest.md` + `executable-profile-draft-latest.md`；只有全记录复盘才形成可执行 profile 草案。
+- `profile-summary-latest.md` 只是兼容旧入口，内容等同自读画像，不代表可执行 profile 草案。
+- 必须先审计 `trade_decision` note：note 只是当时主张，不是事实证明；没有卖出闭环、后续 `holding_review` 或外部行情/财报/事件验证时，不能归纳为可复制好习惯。
+- 单标的复盘只记录该标的暴露出的习惯、拦截器或待验证假设；不能用单一样本改写整个画像或正式 profile。
+- 全记录复盘才可以更新整体画像，但必须区分 A/B/C/D 证据等级。
+- 只有用户明确确认“写入/保存/更新 profile”时，才修改 `profiles/<slug>.md`。
+- 更新 profile 时必须保留或更新：适用场景、禁用场景、可复制好习惯、需要规避的坏习惯、交易拦截器、交易前提醒卡、持仓复盘规则、画像更新记录。
 
 输出：
 ```
@@ -431,6 +470,7 @@ python3 scripts/notes.py add <代码> --type holding_review --note <持仓复盘
 
 ```text
 references/portfolio-watch-analysis-flow.md
+references/pre-trade-interceptor-flow.md
 profiles/<用户指定或当前适用的交易画像>.md
 ```
 
@@ -450,6 +490,7 @@ python3 scripts/watchlist.py ls
 ```bash
 python3 scripts/query_trades.py --ts-code <代码> --limit 5
 python3 scripts/analyze_holdings.py context <代码或名称> --json
+python3 scripts/profile_review.py single <代码> --json
 ```
 
 输出必须覆盖：
@@ -457,6 +498,7 @@ python3 scripts/analyze_holdings.py context <代码或名称> --json
 - 当前持仓盈亏、原币种浮盈亏和人民币等值权重估算。
 - 组合集中度、同一公司跨市场暴露、行业/宏观/币种相关性。
 - 按所选交易画像约束动作：使用 profile 中定义的仓位上限、加仓/再买规则、失效条件和复盘要求；不要硬套某个固定画像。
+- 先输出画像拦截结果：触发哪些交易拦截器、允许动作、禁止动作、必须追问或补充的字段。
 - 持仓处理：继续持有、加仓、减仓、退出条件和可观察失效条件。
 - 关注列表处理：是否可开仓、触发价、首笔仓位、加仓规则和失效条件。
 - 如果交易 note 没有所选 profile 要求的字段，指出需要补齐哪些字段。
@@ -468,7 +510,10 @@ python3 scripts/analyze_holdings.py context <代码或名称> --json
 ```bash
 python3 scripts/analyze_holdings.py context RDDT.US --json
 python3 scripts/analyze_holdings.py context 腾讯 --json
+python3 scripts/profile_review.py single RDDT.US --json
 ```
+
+若用户问的是买入、加仓、减仓、卖出或继续持有，必须先读取 `references/pre-trade-interceptor-flow.md` 和当前 profile 的“交易拦截器”，输出交易前提醒卡，再给交易建议。
 
 当前持仓回答继续持有、加仓、减仓、风险和失效条件；关注标的回答是否值得新开仓、买入触发条件、仓位计划和失效条件。
 

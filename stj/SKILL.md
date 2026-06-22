@@ -27,6 +27,8 @@ Claude 全局安装时，主 skill 脚本目录为：
 | `/stj 笔记 CORN.US holding_review 继续持有到7月中旬` | 添加不交易复盘笔记 |
 | `/stj 关注列表` | 查看关注列表 |
 | `/stj 生成交易画像` | 根据交易记录生成/建议交易 profile |
+| `/stj 画像复盘 RDDT.US` | 单标的画像复盘和纪律审计 |
+| `/stj 更新交易画像` | 全记录画像更新复盘 |
 | `/stj 分析持仓` | 持仓盈利、组合风险、关注列表和操作建议 |
 | `/stj 分析 RDDT.US` | 直接分析单只持仓/关注标的 |
 | `/stj 看图 RDDT.US` | 生成带交易/关注标注的本地图表 |
@@ -76,6 +78,36 @@ Profile 是可替换的外部输入，按用户指定名称选择；如果用户
 - 如果只是询问建议，先输出 profile 草案，不写文件。
 - 只有用户明确要求“保存/创建/写入 profile”时，才写入 `~/.claude/skills/stock-trade-journal/profiles/<slug>.md`，并同步源 skill 的 `profiles/<slug>.md`。
 - 生成的 profile 必须保持轻量，默认必填问题不超过 5 个。
+- 生成或更新 profile 必须输出两份文档：给人看的 `self-portrait` 自读画像，以及给 `profiles/` 侧使用的文档。单标的复盘生成 `profile-evidence` 局部证据包；全记录复盘才生成 `executable-profile-draft` 可执行草案。
+- 可复制好习惯、需要规避的坏习惯和交易拦截器必须经过 note 审计验证；`note` 只是当时主张，不是事实证明。
+- 画像更新前必须执行完整复盘：单标的用 `profile_review.py single <代码> --json --write-docs`，全记录用 `profile_review.py all --json --write-docs`。
+
+### 画像复盘与更新
+当用户说“画像复盘 <标的>”“复盘这只股票更新画像”“更新交易画像”“根据所有记录优化画像”等类似表达时，走画像更新复盘流程，不要直接改 profile。
+
+```bash
+cd ~/.claude/skills/stock-trade-journal/scripts && python3 profile_review.py single <代码> --json --write-docs
+cd ~/.claude/skills/stock-trade-journal/scripts && python3 profile_review.py all --json --write-docs
+```
+
+然后读取主 skill：
+
+```text
+~/.claude/skills/stock-trade-journal/references/profile-evolution-review-flow.md
+~/.claude/skills/stock-trade-journal/profiles/<当前画像>.md
+```
+
+必须先输出完整复盘结论、证据等级、note 审计验证、建议保留/新增/加强/降级的拦截器，并默认生成两份 Markdown。单标的复盘不更新整体画像，只生成局部证据包；全记录复盘才可以形成可执行 profile 草案。只有用户明确确认“写入/保存/更新 profile”时，才修改 profile 文件。
+
+默认文档路径：
+
+```text
+~/.trade-journal/results/trade-journal/profile-reviews/self-portrait-latest.md
+~/.trade-journal/results/trade-journal/profile-reviews/single-profile-evidence-latest.md
+~/.trade-journal/results/trade-journal/profile-reviews/executable-profile-draft-latest.md
+```
+
+`profile-summary-latest.md` 只是旧兼容入口，等同自读画像。
 
 ### 查看持仓
 ```bash
@@ -142,9 +174,11 @@ cd ~/.claude/skills/stock-trade-journal/scripts && python3 watchlist.py ls
 执行顺序：
 ```bash
 cd ~/.claude/skills/stock-trade-journal/scripts && python3 analyze_holdings.py context <代码或名称> --json
+cd ~/.claude/skills/stock-trade-journal/scripts && python3 profile_review.py single <代码或名称> --json
 ```
 
 然后读取主 skill 的 `references/invest-research-flow.md`，按该流程：
+- 先读取 `references/pre-trade-interceptor-flow.md` 和当前 profile 的交易拦截器，输出交易前提醒卡；
 - 结合本地持仓/关注/交易记录；
 - 加载主 skill 内置的 `references/invest-research-skills/` 原始投研框架，包括 `stock-fundamental`、`sector-research`、`shared-research-context`、`research-review`；
 - 联网获取最新行情、估值、公告/财报等数据；

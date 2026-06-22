@@ -30,6 +30,7 @@ references/portfolio-watch-analysis-flow.md
 ```bash
 cd ~/.claude/skills/stock-trade-journal/scripts
 python3 analyze_holdings.py context <代码或名称> --json
+python3 profile_review.py single <代码或名称> --json
 ```
 
 上下文里的 `mode` 决定输出目标：
@@ -51,7 +52,30 @@ python3 watchlist.py ls
 
 并按 `references/portfolio-watch-analysis-flow.md` 的规则选择并加载 `profiles/*.md` 作为外部复盘约束。Profile 不固定，不要在主流程中写死某个画像；若交易记录没有写入所选 profile 要求的字段，必须说明缺少哪些字段，不要替用户编造。
 
-## 第二层：内部投研框架加载规则
+## 第二层：画像拦截层
+
+如果用户的问题涉及买入、加仓、减仓、卖出、继续持有或是否开仓，必须先读取：
+
+```text
+references/pre-trade-interceptor-flow.md
+profiles/<当前画像>.md
+```
+
+然后先输出交易前提醒卡：
+
+```text
+当前动作：
+画像匹配：
+触发的拦截器：
+外部数据验证：
+允许动作：
+禁止动作：
+必须写入的 note_type：
+```
+
+如果 profile 拦截器和基本面结论冲突，必须明确说明冲突。例如“基本面可以继续研究，但该动作不满足你的加仓规则，因此不能直接加仓”。
+
+## 第三层：内部投研框架加载规则
 
 ### 个股分析，默认必须加载
 
