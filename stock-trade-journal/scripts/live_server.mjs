@@ -358,20 +358,35 @@ function renderIndex({ positions, watches, quotes }) {
     main{width:min(1320px,calc(100vw - 64px));margin:0 auto;padding:24px 0}
     header{display:flex;justify-content:space-between;gap:16px;align-items:flex-end;margin-bottom:18px}
     h1{font-size:24px;margin:0 0 6px}.muted{color:#737373;font-size:12px;line-height:1.5}
-    .actions,.chart-actions{display:flex;gap:8px;flex-wrap:nowrap}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:30px;border:1px solid #d4d4d4;background:white;border-radius:6px;padding:6px 10px;color:#171717;text-decoration:none;font-size:13px;line-height:1;white-space:nowrap}
+    .right-tools{display:grid;gap:8px;justify-items:end}.actions,.chart-actions,.symbol-form{display:flex;gap:8px;flex-wrap:nowrap}.btn,.symbol-form input,.symbol-form select{display:inline-flex;align-items:center;justify-content:center;min-height:30px;border:1px solid #d4d4d4;background:white;border-radius:6px;padding:6px 10px;color:#171717;text-decoration:none;font-size:13px;line-height:1;white-space:nowrap}.symbol-form input{width:128px;justify-content:flex-start}.symbol-form select{width:84px}
     section{background:white;border:1px solid #e5e5e5;border-radius:8px;margin:14px 0;overflow-x:auto;overflow-y:hidden}
     h2{font-size:15px;margin:0;padding:13px 16px;border-bottom:1px solid #eee;background:#fbfbfb}
     table{width:100%;min-width:1120px;border-collapse:collapse;font-size:13px;table-layout:fixed}th,td{padding:10px 12px;border-top:1px solid #f1f1f1;text-align:left;vertical-align:middle}
     th{font-size:12px;color:#737373;font-weight:600}.num{text-align:right;font-variant-numeric:tabular-nums}.up{color:#c62828;font-weight:700}.down{color:#098658;font-weight:700}
     .code-col{width:130px}.exchange-col{width:96px}.qty-col{width:86px}.cost-col{width:132px}.return-col{width:108px}.pnl-col{width:142px}.price-col{width:190px}.chart-col{width:180px}.watch-target-col{width:150px}
     .code{font-weight:700}.muted{word-break:break-word}.quote-price{font-weight:700}
-    @media(max-width:760px){main{width:auto;padding:12px}header{display:block}table{font-size:12px;table-layout:auto;min-width:920px}.exchange-col,.cost-col,th.exchange-col,td.exchange-col,th.cost-col,td.cost-col{display:none}.chart-actions{gap:6px}.btn{padding:6px 8px}}
+    @media(max-width:760px){main{width:auto;padding:12px}header{display:grid;gap:12px}.right-tools{justify-items:stretch}.symbol-form input{width:100%}table{font-size:12px;table-layout:auto;min-width:920px}.exchange-col,.cost-col,th.exchange-col,td.exchange-col,th.cost-col,td.cost-col{display:none}.chart-actions{gap:6px}.btn{padding:6px 8px}}
   </style>
 </head>
 <body><main>
   <header>
     <div><h1>STJ 实时持仓与关注</h1><div class="muted">页面刷新时读取 SQLite；报价来自东方财富/Yahoo；单只图表点击时实时调用 skill 生成 HTML。更新时间：${h(now)}</div></div>
-    <div class="actions"><a class="btn" href="/">刷新</a><a class="btn" href="/api/data">JSON</a></div>
+    <div class="right-tools">
+      <form class="symbol-form" action="/chart" method="get">
+        <input name="code" placeholder="代码，如 META.US" pattern="[A-Za-z0-9_.-]+" required>
+        <select name="period" aria-label="周期">
+          <option value="1y">1年</option>
+          <option value="6mo">6月</option>
+          <option value="3mo">3月</option>
+          <option value="1mo">1月</option>
+          <option value="1w">1周</option>
+          <option value="3y">3年</option>
+          <option value="trade">交易以来</option>
+        </select>
+        <button class="btn" type="submit">打开图表</button>
+      </form>
+      <div class="actions"><a class="btn" href="/">刷新</a><a class="btn" href="/api/data">JSON</a></div>
+    </div>
   </header>
   <section>
     <h2>持仓</h2>

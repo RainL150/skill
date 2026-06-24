@@ -13,7 +13,7 @@ when: |
   - "同步IBKR" "同步盈透"
   - "查询持仓" "持仓盈亏" "我的持仓"
   - "关注 XXX" "加入关注" "关注列表"
-  - "分析持仓" "看图" "打开图表"
+  - "分析持仓" "在线持仓" "打开持仓网页" "打开标的图表"
   - 或直接使用 /stj 命令
 examples:
   - "/stj 记录：NVDA.US 在130买入100股"
@@ -53,8 +53,7 @@ metadata:
 | `/stj 更新交易画像` | 全记录画像更新复盘 | `/stj 更新交易画像` |
 | `/stj 分析持仓` | 持仓盈利、组合风险、关注列表和操作建议 | `/stj 分析一下我的持仓还有关注` |
 | `/stj 分析 <标的>` | 直接分析单只持仓/关注标的 | `/stj 分析 RDDT.US` |
-| `/stj 看图` | 生成带交易/关注标注的本地图表 | `/stj 看图 RDDT.US` |
-| `/stj 在线持仓` | 启动实时持仓与关注网页 | `/stj 在线持仓` |
+| `/stj 在线持仓` | 启动实时持仓、关注和任意标的图表网页 | `/stj 在线持仓` |
 | `/stj 同步` | 同步IBKR | `/stj 同步IBKR` |
 
 ---
@@ -365,8 +364,8 @@ python3 scripts/sync_ibkr.py --local
 | `query_positions.py` | 查询持仓 |
 | `watchlist.py` | 关注列表管理 |
 | `analyze_holdings.py` | 本地持仓/关注分析上下文 |
-| `render_chart.py` | 生成带交易/关注标注的本地 ECharts 图表 |
-| `live_server.mjs` | 启动实时持仓与关注网页 |
+| `render_chart.py` | 在线持仓页内部使用的 ECharts 图表渲染器 |
+| `live_server.mjs` | 启动实时持仓、关注和任意标的图表网页 |
 | `sync_ibkr.py` | IBKR API 同步 |
 
 ---
@@ -521,49 +520,9 @@ python3 scripts/profile_review.py single RDDT.US --json
 
 ---
 
-## 本地标注图表
+## 在线持仓与标的图表
 
-当用户说“看图”“打开图表”“给我 RDDT 的图”等需求时，优先生成本地 HTML 图表：
-
-```bash
-python3 scripts/render_chart.py RDDT.US
-
-# 指定区间和默认图表类型
-python3 scripts/render_chart.py RDDT.US --period 1y --chart-type candlestick
-
-# 支持近一周、一个月、半年、一年、三年、交易以来
-python3 scripts/render_chart.py RDDT.US --period 1w
-python3 scripts/render_chart.py RDDT.US --period 交易以来
-
-# 使用本地 OHLC JSON，跳过网络拉取
-python3 scripts/render_chart.py RDDT.US --price-json prices.json
-```
-
-输出路径默认是：
-
-```
-~/.trade-journal/results/trade-journal/charts/<代码>.html
-```
-
-每次生成也会同步更新固定入口：
-
-```
-~/.trade-journal/results/trade-journal/charts/latest.html
-```
-
-这个文件会自动装载最近一次生成结果，适合固定收藏或让 `/stj 看图` 每次打开同一个入口。
-
-图表模板来自 `templates/stock-chart.html`，抽取自 `baijuyi_fe` 的 ECharts stock chart 组件。生成时会自动读取本地数据库：
-
-- 行情：默认从东方财富获取 OHLC 数据，`--price-json` 可跳过网络使用本地数据
-- `trades`：BUY/SELL 交易会贴近最近一根 K 线，显示为 B/S 标记
-- `notes` 中的 `trade_decision`：交易原因/备注会随交易标记展示；止损/止盈触发条件会一并展示；“截图导入”等来源信息不作为笔记
-- `positions`：持仓均价会显示为水平线
-- `positions` + 最新收盘价：自动计算市值、总体浮盈和收益率
-
-## 在线持仓与关注页
-
-当用户要求“在线启动 node”“打开持仓网页”“实时持仓和关注页”等需求时，启动本地 Node 服务：
+用户要求“在线启动 node”“打开持仓网页”“实时持仓和关注页”“看某个代码的图”等需求时，统一启动本地 Node 服务，图表查看也在该网页内完成：
 
 ```bash
 cd ~/.claude/skills/stock-trade-journal/scripts
@@ -581,12 +540,12 @@ http://127.0.0.1:8787/
 - 每次刷新实时读取 `~/.trade-journal/results/trade-journal/db/trades.db`
 - 持仓表展示成本、实时价、收益率、总收益，涨红跌绿
 - 关注列表和持仓共用实时行情，行情来自东方财富/Yahoo
-- 点击单只标的图表时实时调用 `render_chart.py` 生成 HTML
+- 点击持仓/关注标的图表时实时调用 `render_chart.py` 生成 HTML
+- 页面顶部可以输入任意代码并选择周期，支持不在持仓或关注列表里的标的，例如 `META.US`、`601021.SH`、`0700.HK`
 - 优先用 Node 拉 OHLC 并通过 `--price-json` 传给图表脚本，减少 Python 网络源失败的影响
+- 图表会自动叠加本地交易、关注和持仓笔记；没有本地记录的代码只显示行情图
 
 可用环境变量：`STJ_WORKSPACE`、`STJ_DB`、`STJ_RENDER_CHART`、`STJ_QUOTE_TIMEOUT_MS`、`HOST`、`PORT`。
-- `watchlist`：关注列表只管理标的状态、分类、目标价、止损价等
-- `notes` 中的 `watch_observation` / `holding_review`：不交易观察和持仓复盘会按日期挂到图上并支持 hover
 
 ---
 

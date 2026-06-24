@@ -31,8 +31,7 @@ Claude 全局安装时，主 skill 脚本目录为：
 | `/stj 更新交易画像` | 全记录画像更新复盘 |
 | `/stj 分析持仓` | 持仓盈利、组合风险、关注列表和操作建议 |
 | `/stj 分析 RDDT.US` | 直接分析单只持仓/关注标的 |
-| `/stj 看图 RDDT.US` | 生成带交易/关注标注的本地图表 |
-| `/stj 在线持仓` | 启动实时持仓与关注网页 |
+| `/stj 在线持仓` | 启动实时持仓、关注和任意标的图表网页 |
 | `/stj 同步IBKR` | 同步盈透数据 |
 
 ## 处理用户请求
@@ -187,18 +186,8 @@ cd ~/.claude/skills/stock-trade-journal/scripts && python3 profile_review.py sin
 
 直接分析时不要依赖外部 `invest-research-skills` 是否安装；`stock-trade-journal` 已内置完整运行时 reference。
 
-### 看图
-```bash
-cd ~/.claude/skills/stock-trade-journal/scripts && python3 render_chart.py <代码> --period 1y
-```
-
-可用时间范围：`1w`、`1mo`、`6mo`、`1y`、`3y`、`trade`，也支持中文 `近一周`、`一个月`、`半年`、`一年`、`三年`、`交易以来`。
-
-生成的 HTML 默认保存到 `~/.trade-journal/results/trade-journal/charts/<代码>.html`，并同步更新固定入口
-`~/.trade-journal/results/trade-journal/charts/latest.html`。
-
 ### 在线持仓页
-当用户要求“在线启动 node”“打开持仓网页”“实时持仓和关注页”等类似请求时，启动本地服务：
+当用户要求“在线启动 node”“打开持仓网页”“实时持仓和关注页”“看某个代码的图”等类似请求时，统一启动本地服务，图表查看也在该网页内完成：
 
 ```bash
 cd ~/.claude/skills/stock-trade-journal/scripts && PORT=8787 node live_server.mjs
@@ -210,7 +199,7 @@ cd ~/.claude/skills/stock-trade-journal/scripts && PORT=8787 node live_server.mj
 http://127.0.0.1:8787/
 ```
 
-该服务每次刷新页面实时读取 SQLite，并用东方财富/Yahoo 获取行情；点击单只标的图表时会实时生成带交易/关注标注的 HTML。可用环境变量：`STJ_WORKSPACE`、`STJ_DB`、`STJ_RENDER_CHART`、`STJ_QUOTE_TIMEOUT_MS`、`HOST`、`PORT`。
+该服务每次刷新页面实时读取 SQLite，并用东方财富/Yahoo 获取行情；点击持仓/关注标的图表或在页面输入任意代码时，会实时生成带交易/关注标注的 HTML。任意代码可以不在持仓或关注列表中，例如 `META.US`、`601021.SH`、`0700.HK`。可用环境变量：`STJ_WORKSPACE`、`STJ_DB`、`STJ_RENDER_CHART`、`STJ_QUOTE_TIMEOUT_MS`、`HOST`、`PORT`。
 
 ### 同步 IBKR
 ```bash
