@@ -12,8 +12,8 @@
       --text: #18181b;
       --muted: #71717a;
       --line: #e4e4e7;
-      --green: #26a69a;
-      --red: #ef5350;
+      --green: #098658;
+      --red: #c62828;
       --blue: #2962ff;
       --amber: #f59e0b;
     }
@@ -68,8 +68,8 @@
       font-size: 14px;
       font-weight: 700;
     }
-    .positive { color: var(--green); }
-    .negative { color: var(--red); }
+    .positive { color: var(--red); }
+    .negative { color: var(--green); }
     .toolbar {
       display: flex;
       justify-content: space-between;
@@ -114,12 +114,12 @@
       background: #ffffff;
     }
     .pill.positive {
-      border-color: rgba(38, 166, 154, 0.28);
-      background: rgba(38, 166, 154, 0.08);
+      border-color: rgba(198, 40, 40, 0.28);
+      background: rgba(198, 40, 40, 0.08);
     }
     .pill.negative {
-      border-color: rgba(239, 83, 80, 0.28);
-      background: rgba(239, 83, 80, 0.08);
+      border-color: rgba(9, 134, 88, 0.28);
+      background: rgba(9, 134, 88, 0.08);
     }
     #chart {
       width: 100%;
@@ -172,6 +172,42 @@
       font-size: 12px;
       line-height: 1.6;
       margin-top: 12px;
+    }
+    .memo-list {
+      display: grid;
+      gap: 5px;
+      max-width: 560px;
+      line-height: 1.55;
+    }
+    .memo-list.compact {
+      max-width: 360px;
+      gap: 4px;
+      margin-top: 5px;
+    }
+    .memo-part {
+      display: grid;
+      grid-template-columns: 76px minmax(0, 1fr);
+      gap: 8px;
+      align-items: start;
+    }
+    .memo-list.compact .memo-part {
+      grid-template-columns: 64px minmax(0, 1fr);
+      gap: 6px;
+    }
+    .memo-part.plain {
+      display: block;
+    }
+    .memo-key {
+      color: #52525b;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .memo-value {
+      color: var(--muted);
+      min-width: 0;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      white-space: normal;
     }
     @media (max-width: 820px) {
       .page { padding: 12px; }
@@ -246,6 +282,36 @@
       '"': "&quot;",
       "'": "&#39;",
     }[char]));
+    const parseNoteParts = (value) => {
+      const text = String(value ?? "").trim();
+      if (!text) return [];
+      return text
+        .split(/[；;]\s*/)
+        .map(part => part.trim())
+        .filter(Boolean)
+        .map(part => {
+          const match = part.match(/^([\u4e00-\u9fa5A-Za-z0-9/（）()_-]{2,14})\s*[:：]\s*(.+)$/);
+          if (!match) return { label: "", value: part };
+          return { label: match[1], value: match[2] };
+        });
+    };
+    const renderNote = (value, compact = false) => {
+      const parts = parseNoteParts(value);
+      if (!parts.length) return escapeHtml("-");
+      return `
+        <div class="memo-list ${compact ? "compact" : ""}">
+          ${parts.map(part => part.label ? `
+            <div class="memo-part">
+              <span class="memo-key">${escapeHtml(part.label)}</span>
+              <span class="memo-value">${escapeHtml(part.value)}</span>
+            </div>
+          ` : `
+            <div class="memo-part plain memo-value">${escapeHtml(part.value)}</div>
+          `).join("")}
+        </div>
+      `;
+    };
+    const tooltipBoxStyle = "width:360px;max-width:360px;white-space:normal;overflow-wrap:anywhere;word-break:break-word;line-height:1.45;";
     const axisDate = (value, daySpan) => {
       const date = new Date(value);
       if (daySpan > 60) {
@@ -321,7 +387,7 @@
                   <td class="${t.side === "BUY" ? "positive" : "negative"}">${t.side}</td>
                   <td class="num">${money(t.price)}</td>
                   <td class="num">${escapeHtml(t.quantity)}</td>
-                  <td>${escapeHtml(t.memo || "-")}</td>
+                  <td>${renderNote(t.memo || "-")}</td>
                 </tr>
               `).join("")}
             </tbody>
@@ -337,7 +403,7 @@
             ${notes.slice().reverse().map(item => `
               <tr>
                 <td>${escapeHtml(fullDate(item.timestamp))}</td>
-                <td>${escapeHtml(item.note || "-")}</td>
+                <td>${renderNote(item.note || "-")}</td>
               </tr>
             `).join("")}
           </tbody>
@@ -357,7 +423,7 @@
             <div style="margin:7px 0 0;">
               <div><strong>${escapeHtml(t.side)}</strong> ${escapeHtml(t.quantity)} @ <strong>${money(t.price)}</strong>${escapeHtml(source)}</div>
               <div style="color:#6b7280;">时间：${escapeHtml(fullDate(t.timestamp))}</div>
-              ${t.memo ? `<div style="color:#6b7280;">笔记：${escapeHtml(t.memo)}</div>` : ""}
+              ${t.memo ? renderNote(t.memo, true) : ""}
             </div>`;
         }).join("")}
       `;
@@ -374,7 +440,7 @@
         <div style="height:1px;background:#eceff3;margin:8px 0;"></div>
         <div style="font-weight:700;margin-bottom:6px;">关注触发</div>
         ${rows.map(row => `<div>${escapeHtml(row)}</div>`).join("")}
-        ${w.memo ? `<div style="color:#6b7280;margin-top:4px;">笔记：${escapeHtml(w.memo)}</div>` : ""}
+        ${w.memo ? renderNote(w.memo, true) : ""}
       `;
     }
 
@@ -386,7 +452,7 @@
         ${notes.map(item => `
           <div style="margin:7px 0 0;">
             <div style="color:#6b7280;">时间：${escapeHtml(fullDate(item.timestamp))}</div>
-            <div>${escapeHtml(item.note || "-")}</div>
+            ${renderNote(item.note || "-", true)}
           </div>
         `).join("")}
       `;
@@ -408,7 +474,7 @@
       const last = records[records.length - 1]?.close ?? 0;
       const first = records[0]?.close ?? 0;
       const positive = last >= first;
-      const lineColor = positive ? "#26a69a" : "#ef5350";
+      const lineColor = positive ? "#c62828" : "#098658";
       const avgCost = Number(payload.position?.avgCost || 0);
 
       const grouped = new Map();
@@ -431,7 +497,7 @@
         const hasSell = trades.some(t => t.side === "SELL");
         const type = hasBuy && !hasSell ? "buy" : hasSell && !hasBuy ? "sell" : "mixed";
         const point = records[idx];
-        const color = type === "buy" ? "#26a69a" : type === "sell" ? "#ef5350" : "#71717a";
+        const color = type === "buy" ? "#c62828" : type === "sell" ? "#098658" : "#71717a";
         markPoints.push({
           name: "trade",
           xAxis: categories[idx],
@@ -443,7 +509,7 @@
           itemStyle: { color, borderColor: "#fff", borderWidth: 2, shadowBlur: 6, shadowColor: "rgba(0,0,0,0.25)" },
           label: { show: true, formatter: type === "buy" ? "B" : type === "sell" ? "S" : "T", color: "#fff", fontSize: 10, fontWeight: "bold" },
           tooltip: {
-            formatter: () => `<div style="min-width:220px;">${tradeTooltipRows(trades)}</div>`
+            formatter: () => `<div style="${tooltipBoxStyle}">${tradeTooltipRows(trades)}</div>`
           }
         });
       }
@@ -460,7 +526,7 @@
           itemStyle: { color: "#f59e0b", borderColor: "#fff", borderWidth: 2, shadowBlur: 6, shadowColor: "rgba(0,0,0,0.22)" },
           label: { show: true, formatter: "记", color: "#fff", fontSize: 10, fontWeight: "bold" },
           tooltip: {
-            formatter: () => `<div style="min-width:220px;">${watchNoteTooltipRows(notes)}</div>`
+            formatter: () => `<div style="${tooltipBoxStyle}">${watchNoteTooltipRows(notes)}</div>`
           }
         });
       }
@@ -483,15 +549,15 @@
       if (payload.watch?.targetPrice) {
         markLines.push({
           yAxis: payload.watch.targetPrice,
-          lineStyle: { color: "#26a69a", type: [4, 4], width: 1.2 },
-          label: { formatter: `目标${money(payload.watch.targetPrice)}`, color: "#fff", backgroundColor: "#26a69a", borderRadius: 3, padding: [3, 6] }
+          lineStyle: { color: "#c62828", type: [4, 4], width: 1.2 },
+          label: { formatter: `目标${money(payload.watch.targetPrice)}`, color: "#fff", backgroundColor: "#c62828", borderRadius: 3, padding: [3, 6] }
         });
       }
       if (payload.watch?.stopLoss) {
         markLines.push({
           yAxis: payload.watch.stopLoss,
-          lineStyle: { color: "#ef5350", type: [4, 4], width: 1.2 },
-          label: { formatter: `止损${money(payload.watch.stopLoss)}`, color: "#fff", backgroundColor: "#ef5350", borderRadius: 3, padding: [3, 6] }
+          lineStyle: { color: "#098658", type: [4, 4], width: 1.2 },
+          label: { formatter: `止损${money(payload.watch.stopLoss)}`, color: "#fff", backgroundColor: "#098658", borderRadius: 3, padding: [3, 6] }
         });
       }
 
@@ -499,7 +565,7 @@
         name: "K线",
         type: "candlestick",
         data: candle,
-        itemStyle: { color: "#26a69a", color0: "#ef5350", borderColor: "#26a69a", borderColor0: "#ef5350", borderWidth: 1 },
+        itemStyle: { color: "#c62828", color0: "#098658", borderColor: "#c62828", borderColor0: "#098658", borderWidth: 1 },
         barWidth: "60%",
       } : {
         name: "价格",
@@ -512,8 +578,8 @@
           color: {
             type: "linear", x: 0, y: 0, x2: 0, y2: 1,
             colorStops: [
-              { offset: 0, color: positive ? "rgba(38, 166, 154, 0.36)" : "rgba(239, 83, 80, 0.36)" },
-              { offset: 1, color: positive ? "rgba(38, 166, 154, 0.02)" : "rgba(239, 83, 80, 0.02)" },
+              { offset: 0, color: positive ? "rgba(198, 40, 40, 0.30)" : "rgba(9, 134, 88, 0.30)" },
+              { offset: 1, color: positive ? "rgba(198, 40, 40, 0.02)" : "rgba(9, 134, 88, 0.02)" },
             ],
           },
         },
@@ -542,7 +608,7 @@
             <span style="color:#6b7280;">成交量</span><strong style="text-align:right;">${escapeHtml(record.volume ?? "-")}</strong>
           </div>
         `;
-        return `<div style="min-width:230px;max-width:320px;">${header}${priceRows}${tradeTooltipRows(trades)}${watchNoteTooltipRows(watchNotes)}${watchTooltipRows(record.close)}</div>`;
+        return `<div style="${tooltipBoxStyle}">${header}${priceRows}${tradeTooltipRows(trades)}${watchNoteTooltipRows(watchNotes)}${watchTooltipRows(record.close)}</div>`;
       };
 
       return {
@@ -553,8 +619,9 @@
           trigger: "axis",
           axisPointer: { type: "cross", snap: true },
           appendToBody: true,
+          confine: true,
           borderColor: "#d4d8e1",
-          extraCssText: "box-shadow:0 10px 30px rgba(15,23,42,.18);border-radius:6px;",
+          extraCssText: "box-shadow:0 10px 30px rgba(15,23,42,.18);border-radius:6px;max-width:380px;white-space:normal;overflow-wrap:anywhere;word-break:break-word;",
           formatter: tooltipFormatter,
         },
         dataZoom: [

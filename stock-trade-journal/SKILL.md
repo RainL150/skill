@@ -54,6 +54,7 @@ metadata:
 | `/stj 分析持仓` | 持仓盈利、组合风险、关注列表和操作建议 | `/stj 分析一下我的持仓还有关注` |
 | `/stj 分析 <标的>` | 直接分析单只持仓/关注标的 | `/stj 分析 RDDT.US` |
 | `/stj 看图` | 生成带交易/关注标注的本地图表 | `/stj 看图 RDDT.US` |
+| `/stj 在线持仓` | 启动实时持仓与关注网页 | `/stj 在线持仓` |
 | `/stj 同步` | 同步IBKR | `/stj 同步IBKR` |
 
 ---
@@ -365,6 +366,7 @@ python3 scripts/sync_ibkr.py --local
 | `watchlist.py` | 关注列表管理 |
 | `analyze_holdings.py` | 本地持仓/关注分析上下文 |
 | `render_chart.py` | 生成带交易/关注标注的本地 ECharts 图表 |
+| `live_server.mjs` | 启动实时持仓与关注网页 |
 | `sync_ibkr.py` | IBKR API 同步 |
 
 ---
@@ -558,6 +560,31 @@ python3 scripts/render_chart.py RDDT.US --price-json prices.json
 - `notes` 中的 `trade_decision`：交易原因/备注会随交易标记展示；止损/止盈触发条件会一并展示；“截图导入”等来源信息不作为笔记
 - `positions`：持仓均价会显示为水平线
 - `positions` + 最新收盘价：自动计算市值、总体浮盈和收益率
+
+## 在线持仓与关注页
+
+当用户要求“在线启动 node”“打开持仓网页”“实时持仓和关注页”等需求时，启动本地 Node 服务：
+
+```bash
+cd ~/.claude/skills/stock-trade-journal/scripts
+PORT=8787 node live_server.mjs
+```
+
+浏览器访问：
+
+```text
+http://127.0.0.1:8787/
+```
+
+服务能力：
+
+- 每次刷新实时读取 `~/.trade-journal/results/trade-journal/db/trades.db`
+- 持仓表展示成本、实时价、收益率、总收益，涨红跌绿
+- 关注列表和持仓共用实时行情，行情来自东方财富/Yahoo
+- 点击单只标的图表时实时调用 `render_chart.py` 生成 HTML
+- 优先用 Node 拉 OHLC 并通过 `--price-json` 传给图表脚本，减少 Python 网络源失败的影响
+
+可用环境变量：`STJ_WORKSPACE`、`STJ_DB`、`STJ_RENDER_CHART`、`STJ_QUOTE_TIMEOUT_MS`、`HOST`、`PORT`。
 - `watchlist`：关注列表只管理标的状态、分类、目标价、止损价等
 - `notes` 中的 `watch_observation` / `holding_review`：不交易观察和持仓复盘会按日期挂到图上并支持 hover
 
