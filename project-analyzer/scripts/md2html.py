@@ -42,11 +42,11 @@ TEMPLATE_HEAD = '''<!doctype html>
   /* ── Editorial / 印刷备忘录风(暖纸底 + 衬线标题 + 低饱和三色)── */
   @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500;600;700&family=Noto+Sans+SC:wght@300;400;500&display=swap');
   :root{{
-    --ink:#1a1a1a; --ink-mid:#444; --ink-light:#666; --ink-muted:#999;
-    --blue:#1a4a7a; --blue-bg:#e8eef5; --blue-dark:#1e3a5f;
-    --green:#1a7a4a; --green-bg:#e8f5ee; --green-dark:#14532d;
-    --red:#b91c1c; --red-bg:#fef2f2; --red-dark:#7f1d1d;
-    --bg:#f9f8f5; --surface:#fffefb; --border:#e2e0da; --rule:#ccc9c1; --code-bg:#eeece6;
+    --ink:#1a1a1a; --ink-mid:#333; --ink-light:#555; --ink-muted:#6b6b6b;
+    --blue:#16456f; --blue-bg:#e7eef6; --blue-dark:#143052;
+    --green:#15683f; --green-bg:#e6f4ec; --green-dark:#0f4023;
+    --red:#a81c1c; --red-bg:#fdf1f1; --red-dark:#6f1818;
+    --bg:#f9f8f5; --surface:#fffefb; --border:#dedcd4; --rule:#c4c1b8; --code-bg:#eceae3;
     --serif:'Noto Serif SC','Songti SC','STSong',serif;
     --sans:'Noto Sans SC','PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif;
     --mono:'SF Mono',Menlo,Consolas,'Liberation Mono',monospace;
@@ -54,82 +54,82 @@ TEMPLATE_HEAD = '''<!doctype html>
   *{{ box-sizing:border-box; margin:0; padding:0; }}
   html{{ scroll-behavior:smooth; }}
   body{{ background:var(--bg); color:var(--ink); font-family:var(--sans);
-    font-weight:300; font-size:15.5px; line-height:1.9; -webkit-font-smoothing:antialiased; }}
+    font-weight:400; font-size:15px; line-height:1.65; -webkit-font-smoothing:antialiased; }}
   /* 双栏布局:左侧常驻目录 + 右侧正文 */
   .layout{{ display:grid; grid-template-columns:268px minmax(0,1fr); gap:56px;
     max-width:1200px; margin:0 auto; padding:0 32px; }}
-  .content{{ max-width:820px; min-width:0; padding:56px 0 120px; }}
+  .content{{ max-width:820px; min-width:0; padding:40px 0 80px; }}
   /* ── 左侧常驻 TOC ── */
   .toc{{ position:sticky; top:0; align-self:start; max-height:100vh; overflow-y:auto;
-    padding:56px 10px 56px 0; }}
+    padding:40px 10px 40px 0; }}
   .toc-title{{ font-family:var(--serif); font-size:12px; font-weight:600; letter-spacing:.14em;
-    text-transform:uppercase; color:var(--ink-muted); margin-bottom:16px; padding-left:14px; }}
+    text-transform:uppercase; color:var(--ink-muted); margin-bottom:12px; padding-left:14px; }}
   .toc ul{{ list-style:none; padding:0; margin:0; border-left:1px solid var(--border); }}
-  .toc a{{ display:block; padding:5px 0 5px 14px; margin-left:-1px;
-    border-left:2px solid transparent; color:var(--ink-light); font-size:13px;
-    line-height:1.5; text-decoration:none; transition:color .15s,border-color .15s; }}
+  .toc a{{ display:block; padding:3.5px 0 3.5px 14px; margin-left:-1px;
+    border-left:2px solid transparent; color:var(--ink-light); font-size:12.5px;
+    line-height:1.45; text-decoration:none; transition:color .15s,border-color .15s; }}
   .toc a:hover{{ color:var(--ink); border-bottom:none; }}
   .toc a.active{{ color:var(--blue); border-left-color:var(--blue); font-weight:500; }}
-  .toc li.lv3 a{{ padding-left:28px; font-size:12px; color:var(--ink-muted); }}
+  .toc li.lv3 a{{ padding-left:26px; font-size:12px; color:var(--ink-muted); }}
   .toc li.lv3 a.active{{ color:var(--blue); }}
   @media (max-width:920px){{
     .layout{{ grid-template-columns:1fr; padding:0 24px; }}
-    .toc{{ display:none; }} .content{{ padding-top:48px; }} }}
+    .toc{{ display:none; }} .content{{ padding-top:36px; }} }}
   /* 文档头 */
-  h1{{ font-family:var(--serif); font-size:27px; font-weight:700; line-height:1.35;
-    color:var(--ink); padding-bottom:22px; border-bottom:2px solid var(--ink);
-    margin-bottom:14px; letter-spacing:.01em; }}
+  h1{{ font-family:var(--serif); font-size:26px; font-weight:700; line-height:1.3;
+    color:var(--ink); padding-bottom:16px; border-bottom:2px solid var(--ink);
+    margin-bottom:10px; letter-spacing:.01em; }}
   /* 章节标题(衬线 + 细规则线) */
-  h2{{ font-family:var(--serif); font-size:19px; font-weight:700; color:var(--ink);
-    margin:64px 0 28px; padding-bottom:15px; border-bottom:1px solid var(--rule);
-    line-height:1.4; }}
-  h3{{ font-family:var(--sans); font-size:15px; font-weight:500; color:var(--ink-mid);
-    margin:30px 0 12px; padding-left:11px; border-left:3px solid var(--rule);
-    letter-spacing:.02em; }}
-  h4{{ font-family:var(--sans); font-size:11px; font-weight:500; letter-spacing:.13em;
-    text-transform:uppercase; color:var(--ink-muted); margin:22px 0 10px; }}
-  p{{ margin:9px 0; }}
+  h2{{ font-family:var(--serif); font-size:18.5px; font-weight:700; color:var(--ink);
+    margin:42px 0 16px; padding-bottom:10px; border-bottom:1px solid var(--rule);
+    line-height:1.35; }}
+  h3{{ font-family:var(--sans); font-size:14.5px; font-weight:600; color:var(--ink-mid);
+    margin:22px 0 8px; padding-left:11px; border-left:3px solid var(--rule);
+    letter-spacing:.01em; }}
+  h4{{ font-family:var(--sans); font-size:11px; font-weight:600; letter-spacing:.12em;
+    text-transform:uppercase; color:var(--ink-muted); margin:16px 0 7px; }}
+  p{{ margin:5px 0; }}
   a{{ color:var(--blue); text-decoration:none; border-bottom:1px solid transparent; }}
   a:hover{{ border-bottom-color:var(--blue); }}
   strong{{ font-weight:500; color:var(--ink); }}
   /* 表格 —— 极简底线式,无卡片无投影 */
-  .table-wrap{{ margin:18px 0 26px; overflow-x:auto; }}
+  .table-wrap{{ margin:12px 0 18px; overflow-x:auto; }}
   table{{ width:100%; border-collapse:collapse; font-size:13.5px; }}
-  th{{ text-align:left; font-size:11px; font-weight:500; letter-spacing:.07em;
-    text-transform:uppercase; color:var(--ink-muted); white-space:nowrap;
-    border-bottom:1px solid var(--rule); padding:9px 14px 9px 0; }}
-  td{{ padding:11px 14px 11px 0; border-bottom:1px solid var(--border);
-    vertical-align:top; line-height:1.7; color:var(--ink-mid); }}
+  th{{ text-align:left; font-size:11px; font-weight:600; letter-spacing:.06em;
+    text-transform:uppercase; color:var(--ink-light); white-space:nowrap;
+    border-bottom:1px solid var(--rule); padding:7px 14px 7px 0; }}
+  td{{ padding:7px 14px 7px 0; border-bottom:1px solid var(--border);
+    vertical-align:top; line-height:1.55; color:var(--ink-mid); }}
   tbody tr:last-child td{{ border-bottom:none; }}
   td code,th code{{ font-size:.92em; }}
   code{{ background:var(--code-bg); padding:.1em .4em; border-radius:3px;
     font-family:var(--mono); font-size:.85em; color:var(--ink); }}
   pre{{ background:var(--surface); border:1px solid var(--border); border-radius:6px;
-    padding:18px 20px; overflow:auto; font-size:13px; line-height:1.55; margin:16px 0; }}
+    padding:14px 16px; overflow:auto; font-size:12.5px; line-height:1.5; margin:12px 0; }}
   pre code{{ background:none; padding:0; }}
   /* ASCII 线框图 —— 等宽,严禁换行(保对齐) */
   pre.wireframe{{ font-family:var(--mono); white-space:pre; line-height:1.4;
     color:var(--ink-mid); }}
   /* 内联 SVG 图 —— 纸白卡片,细边框 + 极轻层次(融合) */
   .mermaid-svg{{ background:#fff; border:1px solid var(--border); border-radius:6px;
-    padding:24px; margin:18px 0; text-align:center; overflow:auto;
+    padding:18px; margin:12px 0; text-align:center; overflow:auto;
     box-shadow:0 1px 2px rgba(60,64,67,.04), 0 6px 18px rgba(60,64,67,.05); }}
   .mermaid-svg svg{{ max-width:100%; height:auto; }}
   /* 引用块 / 通俗理解 —— 蓝色左边线 callout */
-  blockquote{{ margin:18px 0; padding:16px 22px; background:var(--blue-bg);
+  blockquote{{ margin:12px 0; padding:11px 18px; background:var(--blue-bg);
     border-left:3px solid var(--blue); border-radius:0 6px 6px 0; }}
-  blockquote p{{ margin:6px 0; font-size:14px; line-height:1.8; color:var(--blue-dark); }}
+  blockquote p{{ margin:4px 0; font-size:13.5px; line-height:1.65; color:var(--blue-dark); }}
   blockquote p:first-child{{ margin-top:0; }} blockquote p:last-child{{ margin-bottom:0; }}
   /* 一句话总结 —— 绿色判定 callout */
   .summary{{ background:var(--green-bg); border-left:3px solid var(--green);
-    border-radius:0 6px 6px 0; padding:20px 24px; margin:18px 0 8px;
-    font-size:15px; line-height:1.85; color:var(--green-dark); }}
+    border-radius:0 6px 6px 0; padding:14px 20px; margin:14px 0 8px;
+    font-size:14.5px; line-height:1.7; color:var(--green-dark); }}
   .summary strong{{ color:var(--green-dark); font-weight:600; }}
   /* 元信息 / 页脚 */
   .meta{{ color:var(--ink-muted); font-size:11px; letter-spacing:.05em;
-    line-height:1.9; margin:0 0 8px; }}
-  hr{{ border:none; border-top:1px solid var(--rule); margin:28px 0; }}
-  ul,ol{{ padding-left:1.4em; margin:10px 0; }} li{{ margin:5px 0; }}
+    line-height:1.7; margin:0 0 6px; }}
+  hr{{ border:none; border-top:1px solid var(--rule); margin:18px 0; }}
+  ul,ol{{ padding-left:1.35em; margin:7px 0; }} li{{ margin:2.5px 0; }}
   ::selection{{ background:#ede9df; }}
 </style>
 </head>
