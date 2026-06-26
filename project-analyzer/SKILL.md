@@ -35,7 +35,7 @@ tools: Read, Glob, Grep, Bash, Task, WebFetch
 
 | 功能 | 说明 |
 |------|------|
-| **C4 架构图** | 自动生成 Level 1-3 的 Mermaid 架构图 |
+| **C4 架构图** | 自动生成 Level 1-3 的 ASCII 线框架构图（密集组件图回退 Mermaid flowchart） |
 | **Convention 检测** | 命名规范、代码模式、Git 规范自动识别 |
 | **ADR 增强** | 标准 MADR 格式的设计决策记录 |
 | **进度显示** | 分析过程中显示 Phase 进度条 |
@@ -150,7 +150,7 @@ tools: Read, Glob, Grep, Bash, Task, WebFetch
 | 0 | **一句话总结** | 总体评价是什么？ | 评分 + 评级 + 核心价值 |
 | 1 | **定位** | 解决什么问题？给谁用？ | 一句话定位 + 目标用户 |
 | 2 | **能力清单** | 能帮用户做什么？ | 能力表格 + 触发方式 |
-| 3 | **C4 架构图** | 系统结构是什么样？ | Level 1-3 Mermaid 图 |
+| 3 | **C4 架构图** | 系统结构是什么样？ | Level 1-3 ASCII 线框图 |
 | 4 | **核心机制** | 最关键的实现原理是什么？ | 机制图 + 分步解释 |
 | 5 | **数据流** | 数据怎么流动？状态怎么变化？ | 流程图 + 关键节点 |
 | 6 | **Convention 检测** | 项目遵循什么规范？ | 命名/代码/Git 规范 |
@@ -361,76 +361,100 @@ flowchart LR
 
 ### Phase 3: C4 架构图生成 (并行)
 
-**并行生成 3 个 Level 的 C4 图：**
+> **重要：默认用 ASCII 线框图，不要用 Mermaid 的 `C4Context/C4Container/C4Component` 语法。**
+> 原因：Mermaid 的 C4 语法是实验性的，底层用 dagre 布局，连线超过 6 条就会穿过节点、间距错乱，
+> 且无法真正自动排版。ASCII 线框图写成什么样就显示成什么样，在终端、GitHub、任意 markdown
+> 渲染器、纯文本里 100% 一致，零工具零构建，且 LLM 生成可控性最高。
+> **唯一例外**：Level 3 组件图若箭头非常密集（>8 条交叉连线），才回退到 Mermaid `flowchart`（见下方"L3 回退方案"）。
+
+#### ASCII 线框图绘制规范（必须遵守）
+
+| 元素 | 字符 | 用途 |
+|------|------|------|
+| 盒子边框 | `┌ ─ ┐ │ └ ┘` | 容器 / 组件 / 系统边界 |
+| 分支接点 | `├ ┤ ┬ ┴ ┼` | 连线接入盒子边 |
+| 箭头 | `▼ ▲ ▶ ◀` 配合 `│ ─ ▷` | 有向依赖；虚线用 `┄ ┅ ╌` 或 `-.->` 标注回传 |
+| 强调标记 | `★`（核心/单一事实来源）、`⚠`（瓶颈） | 标注热点 |
+| 角色 | `( 用户 )` 圆角或 `👤` emoji | 外部 Person |
+
+**对齐铁律**：
+1. 整张图放进 ` ``` ` 代码块（**不要**标 `mermaid`/语言，保持纯文本等宽）。
+2. 盒子内文字左右各留 1 空格；同层盒子尽量等宽，便于对齐。
+3. 箭头线上用文字标注关系（`操控`、`context hook`、`view→Command`）。
+4. 用嵌套大盒子表达 C4 的 System/Container boundary，子盒子缩进其内。
+5. 控制规模：L1 ≤6 盒子、L2 ≤8 盒子；超了就拆图或只画核心。
+
+#### 输出模板
 
 ```markdown
 ## C4 架构图
 
 ### Level 1: System Context（系统上下文）
 
-展示系统与外部用户、外部系统的关系。
+系统与外部用户、外部系统的关系。
 
-```mermaid
-C4Context
-    title System Context Diagram - [项目名]
-
-    Person(user, "用户", "使用系统的人")
-    System(system, "[项目名]", "核心系统描述")
-
-    System_Ext(ext1, "外部系统1", "描述")
-    System_Ext(ext2, "外部系统2", "描述")
-
-    Rel(user, system, "Uses")
-    Rel(system, ext1, "Calls API")
-    Rel(system, ext2, "Reads from")
-```
+​```
+              ( 👤 用户 )
+                  │ 使用
+                  ▼
+        ┌───────────────────┐
+        │   [项目名] ★       │
+        └─────────┬─────────┘
+        调用 API  │   │  读取
+           ┌──────┘   └──────┐
+           ▼                 ▼
+   ┌───────────────┐  ┌───────────────┐
+   │  外部系统 A    │  │  外部系统 B    │
+   └───────────────┘  └───────────────┘
+​```
 
 > **通俗理解**：这张图回答"系统跟谁打交道"——[一句话解释]
 
 ### Level 2: Container（容器）
 
-展示系统内部的主要技术组件。
+系统内部的主要技术组件（用大盒子框出 boundary）。
 
-```mermaid
-C4Container
-    title Container Diagram - [项目名]
-
-    Person(user, "用户")
-
-    System_Boundary(boundary, "[项目名]") {
-        Container(web, "Web App", "React/Vue/Next.js", "前端应用")
-        Container(api, "API Server", "Node.js/Go/Python", "后端服务")
-        ContainerDb(db, "Database", "PostgreSQL/MySQL", "数据存储")
-        Container(cache, "Cache", "Redis", "缓存层")
-    }
-
-    Rel(user, web, "Uses", "HTTPS")
-    Rel(web, api, "Calls", "REST/GraphQL")
-    Rel(api, db, "Reads/Writes")
-    Rel(api, cache, "Caches")
-```
+​```
+                       ( 👤 用户 )
+                           │ HTTPS
+                           ▼
+┌──────────────────────────────────────────────────┐
+│  [项目名]                                          │
+│                                                    │
+│   ┌──────────────┐   调用    ┌──────────────────┐  │
+│   │  Web App     │─────────▶│  API Server ★    │  │
+│   │  (前端框架)  │◀ ─ ─ ─ ─ │  (后端语言)      │  │
+│   └──────────────┘   响应    └────────┬─────────┘  │
+│                          读写 │        │ 缓存       │
+│                       ┌───────▼──┐  ┌──▼────────┐  │
+│                       │ Database │  │  Cache    │  │
+│                       └──────────┘  └───────────┘  │
+└──────────────────────────────────────────────────┘
+​```
 
 > **通俗理解**：这张图回答"系统由哪些技术组件组成"——[一句话解释]
 
 ### Level 3: Component（组件）
 
-展示某个 Container 内部的主要模块。
+某个核心 Container 内部的主要模块。
 
-```mermaid
-C4Component
-    title Component Diagram - [核心容器名]
-
-    Container_Boundary(api, "API Server") {
-        Component(router, "Router", "Express/Fastify", "路由分发")
-        Component(controller, "Controllers", "TypeScript", "请求处理")
-        Component(service, "Services", "TypeScript", "业务逻辑")
-        Component(repo, "Repositories", "TypeScript", "数据访问")
-    }
-
-    Rel(router, controller, "Routes to")
-    Rel(controller, service, "Uses")
-    Rel(service, repo, "Uses")
-```
+​```
+┌──────────────────────────────────────────────┐
+│  API Server                                    │
+│                                                │
+│   ┌────────┐   路由    ┌─────────────┐         │
+│   │ Router │─────────▶│ Controllers  │         │
+│   └────────┘          └──────┬───────┘         │
+│                       调用    │                 │
+│                       ┌───────▼──────┐          │
+│                       │  Services    │          │
+│                       └───────┬──────┘          │
+│                       使用     │                 │
+│                       ┌───────▼──────┐          │
+│                       │ Repositories │          │
+│                       └──────────────┘          │
+└──────────────────────────────────────────────┘
+​```
 
 > **通俗理解**：这张图回答"核心模块内部怎么分工"——[一句话解释]
 
@@ -442,6 +466,23 @@ C4Component
 | 依赖方向 | ⭐⭐⭐⭐⭐ | [说明] |
 | 可扩展性 | ⭐⭐⭐☆☆ | [说明] |
 | 潜在瓶颈 | [组件名] | [原因] |
+```
+
+> 注：上方模板里的 `​` 是占位用的零宽字符，实际输出时写成普通的三反引号代码块即可。
+
+#### L3 回退方案（仅当组件箭头 >8 条交叉时）
+
+密集组件图用 ASCII 会很累，此时回退到 Mermaid `flowchart`（**不是** `C4Component`）——flowchart 的成熟布局比 C4 语法稳得多，且 GitHub 原生渲染：
+
+```mermaid
+flowchart TB
+    subgraph API["API Server"]
+        router[Router] --> ctrl[Controllers]
+        ctrl --> svc[Services]
+        svc --> repo[Repositories]
+    end
+    classDef core fill:#1C1C1C,stroke:#4A4A4A,color:#fff
+    class svc core
 ```
 
 ### Phase 4: 数据流 + 扩展点 + 设计决策 + 使用陷阱
@@ -616,10 +657,10 @@ sequenceDiagram
 ## C4 架构概览
 
 ### Level 1: System Context
-[Mermaid 图]
+[ASCII 线框图]
 
 ### Level 2: Container
-[Mermaid 图]
+[ASCII 线框图]
 
 ---
 
@@ -871,7 +912,7 @@ Score = (inbound_norm × 0.4) + (churn_norm × 0.3) + (name_norm × 0.2) + (size
 
 ### 必须包含
 - [ ] 一句话总结（评分 + 评级 + 核心价值）
-- [ ] C4 Level 1 + Level 2 Mermaid 图
+- [ ] C4 Level 1 + Level 2 ASCII 线框图（纯文本代码块，不用 C4Context 语法）
 - [ ] Convention 检测（命名 + 代码模式 + Git 规范）
 - [ ] 能力清单（至少 5 个能力）
 - [ ] 至少 1 个核心机制深入解释（含 Mermaid 流程图 + 举例）
@@ -973,7 +1014,8 @@ Score = (inbound_norm × 0.4) + (churn_norm × 0.3) + (name_norm × 0.2) + (size
 | 章节编号 | 中文数字 + 顿号 | `一、` `二、` `三、` |
 | 表格 | 必须有表头，列对齐 | `\| 列1 \| 列2 \|` |
 | 代码块 | 必须标注语言 | ` ```typescript ` |
-| Mermaid 图 | 必须能在 GitHub 渲染 | ` ```mermaid ` |
+| C4 架构图 | ASCII 线框图，放纯文本代码块（**不标语言**，保持等宽对齐） | ` ``` ` + `┌─┐│└┘` |
+| Mermaid 图 | 仅用于数据流/时序/核心机制流程图，必须能在 GitHub 渲染 | ` ```mermaid ` |
 | 文件引用 | 使用反引号 + 相对路径 | `` `src/index.ts:42` `` |
 | 通俗解释 | 使用引用块 | `> **通俗理解**：...` |
 | 分隔线 | 主要章节间用 `---` | |
@@ -983,7 +1025,7 @@ Score = (inbound_norm × 0.4) + (churn_norm × 0.3) + (name_norm × 0.2) + (size
 1. **检查冲突**：如果目标文件已存在，询问用户是否覆盖
 2. **创建目录**：如果指定路径的目录不存在，自动创建
 3. **输出确认**：保存后输出文件路径和大小
-4. **格式验证**：保存前检查 Mermaid 语法是否正确
+4. **格式验证**：保存前检查 ASCII 线框图盒子对齐、箭头闭合，及 Mermaid（数据流/时序图）语法是否正确
 
 ### 输出示例
 
@@ -992,7 +1034,7 @@ Score = (inbound_norm × 0.4) + (churn_norm × 0.3) + (name_norm × 0.2) + (size
   路径: /path/to/project/ANALYSIS_REPORT.md
   大小: 4.2 KB
   章节: 10 个
-  图表: 3 个 Mermaid 图
+  图表: 3 个 ASCII 线框图 + 2 个 Mermaid 流程图
 ```
 
 ---
