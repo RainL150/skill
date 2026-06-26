@@ -39,90 +39,126 @@ TEMPLATE_HEAD = '''<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title}</title>
 <style>
-  /* ── Material-inspired theme (Google 四色点缀) ── */
+  /* ── Editorial / 印刷备忘录风(暖纸底 + 衬线标题 + 低饱和三色)── */
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500;600;700&family=Noto+Sans+SC:wght@300;400;500&display=swap');
   :root{{
-    --fg:#202124; --muted:#5f6368; --bg:#f1f3f4; --surface:#ffffff; --panel:#f8f9fa;
-    --border:#e3e6ea; --accent:#1a73e8; --accent-soft:#e8f0fe; --code:#f1f3f4;
-    --g-blue:#4285f4; --g-red:#ea4335; --g-yellow:#fbbc04; --g-green:#34a853;
-    --shadow:0 1px 2px rgba(60,64,67,.08), 0 2px 8px rgba(60,64,67,.08);
-    --shadow-lg:0 1px 3px rgba(60,64,67,.12), 0 8px 24px rgba(60,64,67,.14);
+    --ink:#1a1a1a; --ink-mid:#444; --ink-light:#666; --ink-muted:#999;
+    --blue:#1a4a7a; --blue-bg:#e8eef5; --blue-dark:#1e3a5f;
+    --green:#1a7a4a; --green-bg:#e8f5ee; --green-dark:#14532d;
+    --red:#b91c1c; --red-bg:#fef2f2; --red-dark:#7f1d1d;
+    --bg:#f9f8f5; --surface:#fffefb; --border:#e2e0da; --rule:#ccc9c1; --code-bg:#eeece6;
+    --serif:'Noto Serif SC','Songti SC','STSong',serif;
+    --sans:'Noto Sans SC','PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif;
+    --mono:'SF Mono',Menlo,Consolas,'Liberation Mono',monospace;
   }}
-  @media (prefers-color-scheme: dark){{
-    :root{{
-      --fg:#e8eaed; --muted:#9aa0a6; --bg:#0e0f11; --surface:#1c1d20; --panel:#26282c;
-      --border:#3c4043; --accent:#8ab4f8; --accent-soft:#1e2a3d; --code:#26282c;
-      --shadow:0 1px 2px rgba(0,0,0,.4), 0 2px 8px rgba(0,0,0,.3);
-      --shadow-lg:0 1px 3px rgba(0,0,0,.5), 0 8px 24px rgba(0,0,0,.45);
-    }} }}
-  *{{ box-sizing:border-box; }}
+  *{{ box-sizing:border-box; margin:0; padding:0; }}
   html{{ scroll-behavior:smooth; }}
-  body{{ margin:0; background:var(--bg); color:var(--fg);
-        font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
-        line-height:1.75; -webkit-font-smoothing:antialiased; }}
-  /* 顶部四色彩条 —— 致敬 Chrome */
-  body::before{{ content:""; position:fixed; top:0; left:0; right:0; height:4px; z-index:99;
-    background:linear-gradient(90deg,var(--g-blue) 0 25%,var(--g-red) 25% 50%,var(--g-yellow) 50% 75%,var(--g-green) 75% 100%); }}
-  .wrap{{ max-width:1040px; margin:0 auto; padding:56px 24px 120px; }}
-  /* 内容主卡片 */
-  .wrap>h1:first-child{{ margin-top:0; }}
-  h1{{ font-size:2.3rem; font-weight:700; letter-spacing:-.02em; line-height:1.25;
-      margin:0 0 .2em; }}
-  h2{{ font-size:1.5rem; font-weight:650; margin:2.6em 0 .8em; padding-left:14px;
-      border-left:4px solid var(--accent); line-height:1.3; }}
-  h3{{ font-size:1.2rem; font-weight:600; margin:1.8em 0 .6em; }}
-  h4{{ font-size:1.02rem; font-weight:600; color:var(--muted); margin:1.4em 0 .5em; }}
-  p{{ margin:.7em 0; }}
-  a{{ color:var(--accent); text-decoration:none; }} a:hover{{ text-decoration:underline; }}
-  strong{{ font-weight:650; }}
-  /* 表格 —— 圆角卡片包裹 */
-  .table-wrap{{ margin:1.3em 0; border:1px solid var(--border); border-radius:14px;
-    overflow:hidden; box-shadow:var(--shadow); background:var(--surface); }}
-  table{{ border-collapse:collapse; width:100%; font-size:.92rem; }}
-  th,td{{ padding:11px 16px; text-align:left; vertical-align:top;
-    border-bottom:1px solid var(--border); }}
-  th{{ background:var(--panel); font-weight:600; color:var(--fg);
-    border-bottom:2px solid var(--border); white-space:nowrap; }}
+  body{{ background:var(--bg); color:var(--ink); font-family:var(--sans);
+    font-weight:300; font-size:15.5px; line-height:1.9; -webkit-font-smoothing:antialiased; }}
+  /* 双栏布局:左侧常驻目录 + 右侧正文 */
+  .layout{{ display:grid; grid-template-columns:268px minmax(0,1fr); gap:56px;
+    max-width:1200px; margin:0 auto; padding:0 32px; }}
+  .content{{ max-width:820px; min-width:0; padding:56px 0 120px; }}
+  /* ── 左侧常驻 TOC ── */
+  .toc{{ position:sticky; top:0; align-self:start; max-height:100vh; overflow-y:auto;
+    padding:56px 10px 56px 0; }}
+  .toc-title{{ font-family:var(--serif); font-size:12px; font-weight:600; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--ink-muted); margin-bottom:16px; padding-left:14px; }}
+  .toc ul{{ list-style:none; padding:0; margin:0; border-left:1px solid var(--border); }}
+  .toc a{{ display:block; padding:5px 0 5px 14px; margin-left:-1px;
+    border-left:2px solid transparent; color:var(--ink-light); font-size:13px;
+    line-height:1.5; text-decoration:none; transition:color .15s,border-color .15s; }}
+  .toc a:hover{{ color:var(--ink); border-bottom:none; }}
+  .toc a.active{{ color:var(--blue); border-left-color:var(--blue); font-weight:500; }}
+  .toc li.lv3 a{{ padding-left:28px; font-size:12px; color:var(--ink-muted); }}
+  .toc li.lv3 a.active{{ color:var(--blue); }}
+  @media (max-width:920px){{
+    .layout{{ grid-template-columns:1fr; padding:0 24px; }}
+    .toc{{ display:none; }} .content{{ padding-top:48px; }} }}
+  /* 文档头 */
+  h1{{ font-family:var(--serif); font-size:27px; font-weight:700; line-height:1.35;
+    color:var(--ink); padding-bottom:22px; border-bottom:2px solid var(--ink);
+    margin-bottom:14px; letter-spacing:.01em; }}
+  /* 章节标题(衬线 + 细规则线) */
+  h2{{ font-family:var(--serif); font-size:19px; font-weight:700; color:var(--ink);
+    margin:64px 0 28px; padding-bottom:15px; border-bottom:1px solid var(--rule);
+    line-height:1.4; }}
+  h3{{ font-family:var(--sans); font-size:15px; font-weight:500; color:var(--ink-mid);
+    margin:30px 0 12px; padding-left:11px; border-left:3px solid var(--rule);
+    letter-spacing:.02em; }}
+  h4{{ font-family:var(--sans); font-size:11px; font-weight:500; letter-spacing:.13em;
+    text-transform:uppercase; color:var(--ink-muted); margin:22px 0 10px; }}
+  p{{ margin:9px 0; }}
+  a{{ color:var(--blue); text-decoration:none; border-bottom:1px solid transparent; }}
+  a:hover{{ border-bottom-color:var(--blue); }}
+  strong{{ font-weight:500; color:var(--ink); }}
+  /* 表格 —— 极简底线式,无卡片无投影 */
+  .table-wrap{{ margin:18px 0 26px; overflow-x:auto; }}
+  table{{ width:100%; border-collapse:collapse; font-size:13.5px; }}
+  th{{ text-align:left; font-size:11px; font-weight:500; letter-spacing:.07em;
+    text-transform:uppercase; color:var(--ink-muted); white-space:nowrap;
+    border-bottom:1px solid var(--rule); padding:9px 14px 9px 0; }}
+  td{{ padding:11px 14px 11px 0; border-bottom:1px solid var(--border);
+    vertical-align:top; line-height:1.7; color:var(--ink-mid); }}
   tbody tr:last-child td{{ border-bottom:none; }}
-  tbody tr{{ transition:background .12s; }}
-  tbody tr:hover td{{ background:var(--accent-soft); }}
-  code{{ background:var(--code); padding:.16em .45em; border-radius:6px;
-    font-family:"SF Mono",Menlo,Consolas,"Liberation Mono",monospace; font-size:.86em;
-    color:var(--fg); }}
-  pre{{ background:var(--surface); border:1px solid var(--border); border-radius:14px;
-    padding:18px 20px; overflow:auto; font-size:.85rem; line-height:1.5; box-shadow:var(--shadow); }}
+  td code,th code{{ font-size:.92em; }}
+  code{{ background:var(--code-bg); padding:.1em .4em; border-radius:3px;
+    font-family:var(--mono); font-size:.85em; color:var(--ink); }}
+  pre{{ background:var(--surface); border:1px solid var(--border); border-radius:6px;
+    padding:18px 20px; overflow:auto; font-size:13px; line-height:1.55; margin:16px 0; }}
   pre code{{ background:none; padding:0; }}
   /* ASCII 线框图 —— 等宽,严禁换行(保对齐) */
-  pre.wireframe{{ font-family:"SF Mono",Menlo,Consolas,monospace; white-space:pre;
-    line-height:1.4; background:var(--surface); }}
-  /* 内联 SVG 图 —— 固定白底卡片,暗色下也清晰 */
-  .mermaid-svg{{ background:#fff; border:1px solid var(--border); border-radius:14px;
-    padding:22px; margin:1.3em 0; text-align:center; overflow:auto; box-shadow:var(--shadow); }}
+  pre.wireframe{{ font-family:var(--mono); white-space:pre; line-height:1.4;
+    color:var(--ink-mid); }}
+  /* 内联 SVG 图 —— 纸白卡片,细边框 + 极轻层次(融合) */
+  .mermaid-svg{{ background:#fff; border:1px solid var(--border); border-radius:6px;
+    padding:24px; margin:18px 0; text-align:center; overflow:auto;
+    box-shadow:0 1px 2px rgba(60,64,67,.04), 0 6px 18px rgba(60,64,67,.05); }}
   .mermaid-svg svg{{ max-width:100%; height:auto; }}
-  /* 引用块 / 通俗理解 callout */
-  blockquote{{ margin:1.1em 0; padding:.7em 1.1em; background:var(--accent-soft);
-    border-left:4px solid var(--accent); border-radius:0 12px 12px 0; color:var(--fg); }}
-  blockquote p{{ margin:.2em 0; }}
-  /* 一句话总结 —— hero 卡片 */
-  .summary{{ position:relative; background:var(--surface); border:1px solid var(--border);
-    border-radius:18px; padding:24px 28px 24px 30px; font-size:1.08rem; line-height:1.7;
-    margin:1.6em 0 2em; box-shadow:var(--shadow-lg); overflow:hidden; }}
-  .summary::before{{ content:""; position:absolute; left:0; top:0; bottom:0; width:6px;
-    background:linear-gradient(180deg,var(--g-blue),var(--g-green)); }}
-  .meta{{ color:var(--muted); font-size:.86rem; margin:.2em 0 1.4em; }}
-  hr{{ border:none; border-top:1px solid var(--border); margin:2.6em 0; }}
-  ul,ol{{ padding-left:1.5em; }} li{{ margin:.3em 0; }}
-  ::selection{{ background:var(--accent-soft); }}
+  /* 引用块 / 通俗理解 —— 蓝色左边线 callout */
+  blockquote{{ margin:18px 0; padding:16px 22px; background:var(--blue-bg);
+    border-left:3px solid var(--blue); border-radius:0 6px 6px 0; }}
+  blockquote p{{ margin:6px 0; font-size:14px; line-height:1.8; color:var(--blue-dark); }}
+  blockquote p:first-child{{ margin-top:0; }} blockquote p:last-child{{ margin-bottom:0; }}
+  /* 一句话总结 —— 绿色判定 callout */
+  .summary{{ background:var(--green-bg); border-left:3px solid var(--green);
+    border-radius:0 6px 6px 0; padding:20px 24px; margin:18px 0 8px;
+    font-size:15px; line-height:1.85; color:var(--green-dark); }}
+  .summary strong{{ color:var(--green-dark); font-weight:600; }}
+  /* 元信息 / 页脚 */
+  .meta{{ color:var(--ink-muted); font-size:11px; letter-spacing:.05em;
+    line-height:1.9; margin:0 0 8px; }}
+  hr{{ border:none; border-top:1px solid var(--rule); margin:28px 0; }}
+  ul,ol{{ padding-left:1.4em; margin:10px 0; }} li{{ margin:5px 0; }}
+  ::selection{{ background:#ede9df; }}
 </style>
 </head>
 <body>
-<div class="wrap">
 '''
 
 TEMPLATE_TAIL = '''
-</div>
+<script>
+  // 滚动高亮当前章节(IntersectionObserver,零依赖)
+  const links=[...document.querySelectorAll('.toc a')];
+  const map=new Map(links.map(a=>[a.getAttribute('href').slice(1),a]));
+  const obs=new IntersectionObserver((es)=>{
+    es.forEach(e=>{ if(e.isIntersecting){
+      links.forEach(l=>l.classList.remove('active'));
+      const a=map.get(e.target.id); if(a) a.classList.add('active');
+    }});
+  },{rootMargin:'0px 0px -78% 0px', threshold:0});
+  document.querySelectorAll('h2[id],h3[id]').forEach(h=>obs.observe(h));
+</script>
 </body>
 </html>
 '''
+
+def slugify(t):
+    t=re.sub(r'<[^>]+>','',t)                       # 去内联标签
+    t=re.sub(r'[`*\[\]()]','',t).strip()
+    t=re.sub(r'\s+','-',t)
+    t=re.sub(r'[^\w一-鿿-]','',t)
+    return t.lower() or 'sec'
 
 def inline(t):
     # 提取行内 code 占位,避免内部 ** [] 被二次处理
@@ -140,6 +176,11 @@ def inline(t):
 def render(md):
     lines=md.split('\n')
     out=[]; i=0; n=len(lines); mmd_idx=[0]
+    toc=[]; seen=set()
+    def uniq(slug):
+        s=slug; k=2
+        while s in seen: s=f"{slug}-{k}"; k+=1
+        seen.add(s); return s
     def flush_table(rows):
         # rows: list of raw "| a | b |" lines, rows[1] is the --- separator
         def cells(r):
@@ -178,8 +219,14 @@ def render(md):
         # headings
         m=re.match(r'^(#{1,4})\s+(.*)$', ln)
         if m:
-            lvl=len(m.group(1)); txt=inline(m.group(2))
-            out.append(f'<h{lvl}>{txt}</h{lvl}>'); i+=1; continue
+            lvl=len(m.group(1)); raw=m.group(2); txt=inline(raw)
+            if lvl in (2,3):                          # h2/h3 进 TOC + 锚点
+                sid=uniq(slugify(raw))
+                toc.append((lvl, sid, re.sub(r'<[^>]+>','',txt)))
+                out.append(f'<h{lvl} id="{sid}">{txt}</h{lvl}>')
+            else:
+                out.append(f'<h{lvl}>{txt}</h{lvl}>')
+            i+=1; continue
         # hr
         if re.match(r'^---+\s*$', ln):
             out.append('<hr>'); i+=1; continue
@@ -194,7 +241,13 @@ def render(md):
             buf=[]
             while i<n and lines[i].startswith('>'):
                 buf.append(lines[i][1:].lstrip()); i+=1
-            out.append('<blockquote>'+inline(' '.join(buf))+'</blockquote>'); continue
+            joined=' '.join(buf)
+            META=('分析框架','分析时间','分析深度','项目路径','自动生成')
+            if any(k in joined for k in META):   # 文档元信息/页脚 → 细灰 .meta
+                out.append('<p class="meta">'+'<br>'.join(inline(x) for x in buf if x.strip())+'</p>')
+            else:                                 # 通俗理解等 → 蓝色 callout
+                out.append('<blockquote><p>'+inline(joined)+'</p></blockquote>')
+            continue
         # lists
         if re.match(r'^\s*[-*]\s+', ln):
             buf=[]
@@ -218,16 +271,25 @@ def render(md):
             out.append(f'<div class="summary">{inline(para)}</div>')
         else:
             out.append(f'<p>{inline(para)}</p>')
-    return '\n'.join(out)
+    return '\n'.join(out), toc
+
+def build_toc(toc):
+    if not toc: return ''
+    items=''.join(
+        f'<li class="lv{lvl}"><a href="#{sid}">{html.escape(txt)}</a></li>'
+        for lvl,sid,txt in toc)
+    return f'<nav class="toc"><div class="toc-title">目录</div><ul>{items}</ul></nav>'
 
 def main():
     src, dst = sys.argv[1], sys.argv[2]
     md=open(src, encoding='utf-8').read()
     m=re.search(r'^#\s+(.*)$', md, re.M)
     title=m.group(1).strip() if m else 'Analysis Report'
-    body_md=md
-    # 顶部一级标题已在正文里渲染,无需重复
-    htmlout=TEMPLATE_HEAD.format(title=html.escape(title))+render(body_md)+TEMPLATE_TAIL
+    body_html, toc = render(md)         # 一级标题在正文里渲染;h2/h3 进 TOC
+    htmlout=(TEMPLATE_HEAD.format(title=html.escape(title))
+             + '<div class="layout">' + build_toc(toc)
+             + '<main class="content">' + body_html + '</main></div>'
+             + TEMPLATE_TAIL)
     open(dst,'w',encoding='utf-8').write(htmlout)
     import os
     print(f"✓ {dst}  ({os.path.getsize(dst)//1024} KB)")
