@@ -1077,7 +1077,7 @@ Score = (inbound_norm × 0.4) + (churn_norm × 0.3) + (name_norm × 0.2) + (size
 
 skill 自带 `scripts/md2html.py`——它把分析报告 `.md` 转成自包含 `.html`，自动：
 - ASCII 线框图（无语言 fence）→ `<pre class="wireframe">`（HTML 转义、保留对齐）；
-- Mermaid 块 → 调 `mermaid-cli` 渲染成 **内联 SVG**（每张图 id 唯一化防 CSS 冲突，放白底卡片，暗色模式下也清晰）；渲染失败兜底为可读源码 `<pre>`；
+- Mermaid 块 → 调 `mermaid-cli` 渲染成 **内联 SVG**（每张图 id 唯一化防 CSS 冲突，放纸白卡片）；渲染失败兜底为可读源码 `<pre>`；
 - 表格 / 标题 / 引用块 / 列表 / 行内 code → 对应 HTML；一句话总结 → `.summary` 卡片。
 
 ```bash
@@ -1177,7 +1177,7 @@ python3 ~/.claude/skills/project-analyzer/scripts/md2html.py \
 ✓ 分析报告已保存（HTML）
   路径: /path/to/project/ANALYSIS_REPORT.html
   大小: 84 KB（自包含单文件，含 2 张内联 SVG）
-  图表: 3 ASCII 线框图(<pre>) + 2 内联 SVG(Mermaid 渲染) · 暗色自适应
+  图表: 3 ASCII 线框图(<pre>) + 2 内联 SVG(Mermaid 渲染) · 左侧常驻 TOC
   运行时依赖: 0 · 离线可看 · 可打印 PDF
 ```
 
