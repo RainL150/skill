@@ -41,6 +41,7 @@ tools: Read, Glob, Grep, Bash, Task, WebFetch
 | **进度显示** | 分析过程中显示 Phase 进度条 |
 | **CLAUDE.md 生成** | 一键生成项目配置文件 |
 | **并行分析** | 多个分析任务并行执行 |
+| **HTML 输出** | 可输出自包含单文件 HTML；Mermaid 图**构建时渲染成内联 SVG**（零运行时依赖、离线可看），支持 md / html / 两者 |
 
 ---
 
@@ -58,13 +59,19 @@ tools: Read, Glob, Grep, Bash, Task, WebFetch
 - 包含 `modules` 或 `模块拆解` → 输出模块拆解文档
 - 包含 `setup` 或 `启动指南` 或 `怎么跑起来` → 输出启动指南
 - 包含 `claude-md` 或 `生成 CLAUDE.md` → 输出 CLAUDE.md
-- 包含 `save` 或 `--save` 或 `保存分析报告` 或 `输出到文件` → 保存报告到 MD 文件
+- 包含 `save` 或 `--save` 或 `保存分析报告` 或 `输出到文件` → 保存报告到文件
 - 否则 → 输出分析报告（默认）
 
+**格式选择（与 save 组合）：**
+- 默认（仅 `save`）→ 输出 **Markdown**
+- 含 `--html` 或 `html` 或 `网页` → 输出 **HTML**（自包含单文件，见[文档 5](#文档-5html-输出-project-analyzer-save---html)）
+- 含 `--both` 或 `md和html` 或 `都要`/`都输出` → **同时输出 md 和 html**
+- 含 `--md` 或 `markdown` → 仅 Markdown（显式）
+
 **保存模式说明：**
-- 默认保存路径：`<项目根目录>/ANALYSIS_REPORT.md`
-- 可指定路径：`/project-analyzer save ./docs/analysis.md`
-- 支持组合：`/project-analyzer modules save` → 保存模块拆解到文件
+- 默认保存路径：`<项目根目录>/ANALYSIS_REPORT.md`（html 同名 `.html`）
+- 可指定路径：`/project-analyzer save ./docs/analysis.md`（`--html` 时换 `.html` 后缀）
+- 支持组合：`/project-analyzer modules save`、`/project-analyzer save --both`
 
 ---
 
@@ -948,16 +955,25 @@ Score = (inbound_norm × 0.4) + (churn_norm × 0.3) + (name_norm × 0.2) + (size
 
 # 保存启动指南
 /project-analyzer setup save
+
+# 输出 HTML（自包含单文件，Mermaid→内联 SVG）
+/project-analyzer save --html
+
+# 同时输出 md + html
+/project-analyzer save --both
+分析这个项目，md和html都输出
 ```
 
 ### 输出文件命名规范
 
-| 文档类型 | 默认文件名 | 保存位置 |
-|----------|-----------|----------|
-| 分析报告 | `ANALYSIS_REPORT.md` | 项目根目录 |
-| 模块拆解 | `MODULE_BREAKDOWN.md` | 项目根目录 |
-| 启动指南 | `SETUP_GUIDE.md` | 项目根目录 |
-| CLAUDE.md | `CLAUDE.md` | 项目根目录 |
+| 文档类型 | 默认文件名(md) | HTML 文件名 | 保存位置 |
+|----------|-----------|-----------|----------|
+| 分析报告 | `ANALYSIS_REPORT.md` | `ANALYSIS_REPORT.html` | 项目根目录 |
+| 模块拆解 | `MODULE_BREAKDOWN.md` | `MODULE_BREAKDOWN.html` | 项目根目录 |
+| 启动指南 | `SETUP_GUIDE.md` | `SETUP_GUIDE.html` | 项目根目录 |
+| CLAUDE.md | `CLAUDE.md` | —（不出 html） | 项目根目录 |
+
+> HTML 输出完整规范见 **[文档 5：HTML 输出](#文档-5html-输出-project-analyzer-save---html)**。
 
 ### MD 文档标准结构
 
@@ -1031,10 +1047,101 @@ Score = (inbound_norm × 0.4) + (churn_norm × 0.3) + (name_norm × 0.2) + (size
 
 ```
 ✓ 分析报告已保存
-  路径: /path/to/project/ANALYSIS_REPORT.md
-  大小: 4.2 KB
-  章节: 10 个
-  图表: 3 个 ASCII 线框图 + 2 个 Mermaid 流程图
+  Markdown: /path/to/project/ANALYSIS_REPORT.md   (4.2 KB)
+  HTML:     /path/to/project/ANALYSIS_REPORT.html (84 KB, 自包含)
+  章节: 10 个 · 图表: 3 ASCII 线框图 + 2 内联 SVG(由 Mermaid 渲染)
+  → 双击 .html 即可，无需联网、无运行时依赖，可直接打印 PDF
+```
+
+---
+
+# 文档 5：HTML 输出 (`/project-analyzer save --html`)
+
+**路由触发词：** `--html`、`html`、`网页`、`--both`、`md和html`、`都要`/`都输出`
+
+**目的：** 把分析报告输出成**自包含单文件 HTML**——双击在浏览器打开即排版精美，可分享 / 打印 PDF。
+
+## 设计原则（关键：不依赖运行时 CDN）
+
+| 原则 | 说明 |
+|------|------|
+| **单文件自包含** | 所有 CSS 内联；**Mermaid 图在构建时渲染成内联 SVG**，HTML **零运行时依赖、零外链** |
+| **离线/本地可靠** | 因为不靠运行时 CDN，`file://` 双击打开、离线、邮件附件都能正常显示图 |
+| **ASCII 线框图 = 一等公民** | 线框图放 `<pre class="wireframe">` 等宽块，完美保留对齐 |
+| **不重新分析** | HTML 是同一份分析结果的另一种渲染；`--both` 时 md 与 html 内容必须一致 |
+
+> ⚠️ **不要再用运行时 CDN 渲染 Mermaid**（`<script type=module> import("…cdn…mermaid")`）。
+> 那套在 `file://` 双击打开时会被浏览器拦，图退化成原始 `flowchart` 文本。务必构建时出图。
+
+## 生成方式：用辅助脚本（推荐）
+
+skill 自带 `scripts/md2html.py`——它把分析报告 `.md` 转成自包含 `.html`，自动：
+- ASCII 线框图（无语言 fence）→ `<pre class="wireframe">`（HTML 转义、保留对齐）；
+- Mermaid 块 → 调 `mermaid-cli` 渲染成 **内联 SVG**（每张图 id 唯一化防 CSS 冲突，放白底卡片，暗色模式下也清晰）；渲染失败兜底为可读源码 `<pre>`；
+- 表格 / 标题 / 引用块 / 列表 / 行内 code → 对应 HTML；一句话总结 → `.summary` 卡片。
+
+```bash
+# 依赖：node + npx（mermaid-cli 首次自动下载，含一次性 chromium）
+python3 ~/.claude/skills/project-analyzer/scripts/md2html.py \
+        ANALYSIS_REPORT.md ANALYSIS_REPORT.html
+```
+
+`--both` 时：**先写出 `.md`，再用同一文件转 `.html`**，保证两份一字不差。
+
+## 若手工生成 HTML（无 node 环境时的退路）
+
+没有 node/mermaid-cli 时，仍可手工套模板，但 **Mermaid 图退化为 ASCII 线框图**（不要用 CDN）。模板要点：
+
+```html
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>[项目名] 深度分析报告</title>
+<style>
+  :root{ --fg:#1a1a1a; --muted:#6b7280; --bg:#fff; --panel:#f6f8fa;
+         --border:#e5e7eb; --accent:#2563eb; --code:#f3f4f6; }
+  @media (prefers-color-scheme:dark){ :root{ --fg:#e6e6e6; --muted:#9aa0a6;
+         --bg:#0d1117; --panel:#161b22; --border:#30363d; --accent:#58a6ff; --code:#161b22; } }
+  body{ margin:0; background:var(--bg); color:var(--fg); line-height:1.7;
+        font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; }
+  .wrap{ max-width:980px; margin:0 auto; padding:48px 24px 96px; }
+  table{ border-collapse:collapse; width:100%; margin:1em 0; font-size:.93rem; }
+  th,td{ border:1px solid var(--border); padding:8px 12px; text-align:left; }
+  th{ background:var(--panel); } tr:nth-child(even) td{ background:var(--panel); }
+  code{ background:var(--code); padding:.15em .4em; border-radius:4px; font-family:monospace; }
+  pre{ background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:16px; overflow:auto; }
+  pre.wireframe{ white-space:pre; font-family:"SF Mono",Menlo,Consolas,monospace; line-height:1.35; background:var(--bg); }
+  /* 内联 SVG 图:白底卡片,暗色模式也清晰 */
+  .mermaid-svg{ background:#fff; border:1px solid var(--border); border-radius:8px; padding:16px; text-align:center; overflow:auto; }
+  .mermaid-svg svg{ max-width:100%; height:auto; }
+  blockquote{ border-left:4px solid var(--accent); margin:1em 0; padding:.4em 1em; background:var(--panel); color:var(--muted); }
+  .summary{ background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:18px 22px; font-size:1.05rem; }
+  hr{ border:none; border-top:1px solid var(--border); margin:2.4em 0; }
+</style></head><body><div class="wrap">
+  <!-- 正文 … -->
+  <!-- 构建时渲染好的 SVG 直接内联： -->
+  <div class="mermaid-svg"><svg id="mmd0" …>…</svg></div>
+  <!-- 无 node 时退化： -->
+  <pre class="wireframe">A[输入] ──▶ B{判断} ──是──▶ C[输出]</pre>
+</div></body></html>
+```
+
+## HTML 专属规则
+
+- **构建时出图,不留运行时依赖**：Mermaid → 内联 SVG（脚本自动）；绝不嵌 CDN `<script>`。
+- **每张 SVG 的 id 唯一化**（`my-svg` → `mmd0/mmd1/…`），否则多图内部 CSS 互相污染。
+- **SVG 放白底卡片**（`.mermaid-svg{background:#fff}`）——静态 SVG 不能跟随系统主题，固定白底在暗色页也清晰。
+- 线框图与代码必须 **HTML 转义** `< > &`；线框图 `white-space:pre`（**不要** `pre-wrap`，换行毁对齐）。
+- 不嵌外部字体/图片/JS——保证单文件可离线、可邮件附件分享。
+- `--both` 时先生成 md，再由同一内容转 html，确保两份一致。
+
+## 输出示例（HTML 模式）
+
+```
+✓ 分析报告已保存（HTML）
+  路径: /path/to/project/ANALYSIS_REPORT.html
+  大小: 84 KB（自包含单文件，含 2 张内联 SVG）
+  图表: 3 ASCII 线框图(<pre>) + 2 内联 SVG(Mermaid 渲染) · 暗色自适应
+  运行时依赖: 0 · 离线可看 · 可打印 PDF
 ```
 
 ---
