@@ -39,44 +39,79 @@ TEMPLATE_HEAD = '''<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title}</title>
 <style>
-  :root{{ --fg:#1a1a1a; --muted:#6b7280; --bg:#ffffff; --panel:#f6f8fa;
-         --border:#e5e7eb; --accent:#2563eb; --code:#f3f4f6; }}
+  /* ── Material-inspired theme (Google 四色点缀) ── */
+  :root{{
+    --fg:#202124; --muted:#5f6368; --bg:#f1f3f4; --surface:#ffffff; --panel:#f8f9fa;
+    --border:#e3e6ea; --accent:#1a73e8; --accent-soft:#e8f0fe; --code:#f1f3f4;
+    --g-blue:#4285f4; --g-red:#ea4335; --g-yellow:#fbbc04; --g-green:#34a853;
+    --shadow:0 1px 2px rgba(60,64,67,.08), 0 2px 8px rgba(60,64,67,.08);
+    --shadow-lg:0 1px 3px rgba(60,64,67,.12), 0 8px 24px rgba(60,64,67,.14);
+  }}
   @media (prefers-color-scheme: dark){{
-    :root{{ --fg:#e6e6e6; --muted:#9aa0a6; --bg:#0d1117; --panel:#161b22;
-           --border:#30363d; --accent:#58a6ff; --code:#161b22; }} }}
+    :root{{
+      --fg:#e8eaed; --muted:#9aa0a6; --bg:#0e0f11; --surface:#1c1d20; --panel:#26282c;
+      --border:#3c4043; --accent:#8ab4f8; --accent-soft:#1e2a3d; --code:#26282c;
+      --shadow:0 1px 2px rgba(0,0,0,.4), 0 2px 8px rgba(0,0,0,.3);
+      --shadow-lg:0 1px 3px rgba(0,0,0,.5), 0 8px 24px rgba(0,0,0,.45);
+    }} }}
   *{{ box-sizing:border-box; }}
+  html{{ scroll-behavior:smooth; }}
   body{{ margin:0; background:var(--bg); color:var(--fg);
-        font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
-        line-height:1.7; }}
-  .wrap{{ max-width:980px; margin:0 auto; padding:48px 24px 96px; }}
-  h1{{ font-size:2rem; border-bottom:2px solid var(--border); padding-bottom:.4em; }}
-  h2{{ font-size:1.5rem; margin-top:2.2em; border-bottom:1px solid var(--border); padding-bottom:.3em; }}
-  h3{{ font-size:1.2rem; margin-top:1.6em; }}
-  h4{{ font-size:1.05rem; color:var(--muted); }}
+        font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
+        line-height:1.75; -webkit-font-smoothing:antialiased; }}
+  /* 顶部四色彩条 —— 致敬 Chrome */
+  body::before{{ content:""; position:fixed; top:0; left:0; right:0; height:4px; z-index:99;
+    background:linear-gradient(90deg,var(--g-blue) 0 25%,var(--g-red) 25% 50%,var(--g-yellow) 50% 75%,var(--g-green) 75% 100%); }}
+  .wrap{{ max-width:1040px; margin:0 auto; padding:56px 24px 120px; }}
+  /* 内容主卡片 */
+  .wrap>h1:first-child{{ margin-top:0; }}
+  h1{{ font-size:2.3rem; font-weight:700; letter-spacing:-.02em; line-height:1.25;
+      margin:0 0 .2em; }}
+  h2{{ font-size:1.5rem; font-weight:650; margin:2.6em 0 .8em; padding-left:14px;
+      border-left:4px solid var(--accent); line-height:1.3; }}
+  h3{{ font-size:1.2rem; font-weight:600; margin:1.8em 0 .6em; }}
+  h4{{ font-size:1.02rem; font-weight:600; color:var(--muted); margin:1.4em 0 .5em; }}
+  p{{ margin:.7em 0; }}
   a{{ color:var(--accent); text-decoration:none; }} a:hover{{ text-decoration:underline; }}
-  table{{ border-collapse:collapse; width:100%; margin:1em 0; font-size:.93rem; }}
-  th,td{{ border:1px solid var(--border); padding:8px 12px; text-align:left; vertical-align:top; }}
-  th{{ background:var(--panel); font-weight:600; }}
-  tr:nth-child(even) td{{ background:var(--panel); }}
-  code{{ background:var(--code); padding:.15em .4em; border-radius:4px;
-        font-family:"SF Mono",Menlo,Consolas,"Liberation Mono",monospace; font-size:.88em; }}
-  pre{{ background:var(--panel); border:1px solid var(--border); border-radius:8px;
-       padding:16px; overflow:auto; font-size:.85rem; line-height:1.45; }}
+  strong{{ font-weight:650; }}
+  /* 表格 —— 圆角卡片包裹 */
+  .table-wrap{{ margin:1.3em 0; border:1px solid var(--border); border-radius:14px;
+    overflow:hidden; box-shadow:var(--shadow); background:var(--surface); }}
+  table{{ border-collapse:collapse; width:100%; font-size:.92rem; }}
+  th,td{{ padding:11px 16px; text-align:left; vertical-align:top;
+    border-bottom:1px solid var(--border); }}
+  th{{ background:var(--panel); font-weight:600; color:var(--fg);
+    border-bottom:2px solid var(--border); white-space:nowrap; }}
+  tbody tr:last-child td{{ border-bottom:none; }}
+  tbody tr{{ transition:background .12s; }}
+  tbody tr:hover td{{ background:var(--accent-soft); }}
+  code{{ background:var(--code); padding:.16em .45em; border-radius:6px;
+    font-family:"SF Mono",Menlo,Consolas,"Liberation Mono",monospace; font-size:.86em;
+    color:var(--fg); }}
+  pre{{ background:var(--surface); border:1px solid var(--border); border-radius:14px;
+    padding:18px 20px; overflow:auto; font-size:.85rem; line-height:1.5; box-shadow:var(--shadow); }}
   pre code{{ background:none; padding:0; }}
+  /* ASCII 线框图 —— 等宽,严禁换行(保对齐) */
   pre.wireframe{{ font-family:"SF Mono",Menlo,Consolas,monospace; white-space:pre;
-                 line-height:1.35; background:var(--bg); }}
-  /* 内联 SVG 图:固定白底卡片,暗色模式下也清晰可读 */
-  .mermaid-svg{{ background:#fff; border:1px solid var(--border); border-radius:8px;
-                padding:16px; margin:1em 0; text-align:center; overflow:auto; }}
+    line-height:1.4; background:var(--surface); }}
+  /* 内联 SVG 图 —— 固定白底卡片,暗色下也清晰 */
+  .mermaid-svg{{ background:#fff; border:1px solid var(--border); border-radius:14px;
+    padding:22px; margin:1.3em 0; text-align:center; overflow:auto; box-shadow:var(--shadow); }}
   .mermaid-svg svg{{ max-width:100%; height:auto; }}
-  blockquote{{ border-left:4px solid var(--accent); margin:1em 0; padding:.4em 1em;
-              background:var(--panel); color:var(--muted); border-radius:0 6px 6px 0; }}
-  .summary{{ background:var(--panel); border:1px solid var(--border); border-radius:10px;
-            padding:18px 22px; font-size:1.05rem; margin:1.2em 0; }}
-  .meta{{ color:var(--muted); font-size:.85rem; }}
-  hr{{ border:none; border-top:1px solid var(--border); margin:2.4em 0; }}
-  .mermaid{{ background:var(--bg); text-align:center; }}
-  ul,ol{{ padding-left:1.4em; }}
+  /* 引用块 / 通俗理解 callout */
+  blockquote{{ margin:1.1em 0; padding:.7em 1.1em; background:var(--accent-soft);
+    border-left:4px solid var(--accent); border-radius:0 12px 12px 0; color:var(--fg); }}
+  blockquote p{{ margin:.2em 0; }}
+  /* 一句话总结 —— hero 卡片 */
+  .summary{{ position:relative; background:var(--surface); border:1px solid var(--border);
+    border-radius:18px; padding:24px 28px 24px 30px; font-size:1.08rem; line-height:1.7;
+    margin:1.6em 0 2em; box-shadow:var(--shadow-lg); overflow:hidden; }}
+  .summary::before{{ content:""; position:absolute; left:0; top:0; bottom:0; width:6px;
+    background:linear-gradient(180deg,var(--g-blue),var(--g-green)); }}
+  .meta{{ color:var(--muted); font-size:.86rem; margin:.2em 0 1.4em; }}
+  hr{{ border:none; border-top:1px solid var(--border); margin:2.6em 0; }}
+  ul,ol{{ padding-left:1.5em; }} li{{ margin:.3em 0; }}
+  ::selection{{ background:var(--accent-soft); }}
 </style>
 </head>
 <body>
@@ -117,7 +152,7 @@ def render(md):
         for b in body:
             h+='<tr>'+''.join(f'<td>{inline(c)}</td>' for c in b)+'</tr>'
         h+='</tbody></table>'
-        return h
+        return f'<div class="table-wrap">{h}</div>'
     while i<n:
         ln=lines[i]
         # fenced code

@@ -1097,25 +1097,40 @@ python3 ~/.claude/skills/project-analyzer/scripts/md2html.py \
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>[项目名] 深度分析报告</title>
 <style>
-  :root{ --fg:#1a1a1a; --muted:#6b7280; --bg:#fff; --panel:#f6f8fa;
-         --border:#e5e7eb; --accent:#2563eb; --code:#f3f4f6; }
-  @media (prefers-color-scheme:dark){ :root{ --fg:#e6e6e6; --muted:#9aa0a6;
-         --bg:#0d1117; --panel:#161b22; --border:#30363d; --accent:#58a6ff; --code:#161b22; } }
-  body{ margin:0; background:var(--bg); color:var(--fg); line-height:1.7;
-        font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; }
-  .wrap{ max-width:980px; margin:0 auto; padding:48px 24px 96px; }
-  table{ border-collapse:collapse; width:100%; margin:1em 0; font-size:.93rem; }
-  th,td{ border:1px solid var(--border); padding:8px 12px; text-align:left; }
-  th{ background:var(--panel); } tr:nth-child(even) td{ background:var(--panel); }
-  code{ background:var(--code); padding:.15em .4em; border-radius:4px; font-family:monospace; }
-  pre{ background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:16px; overflow:auto; }
-  pre.wireframe{ white-space:pre; font-family:"SF Mono",Menlo,Consolas,monospace; line-height:1.35; background:var(--bg); }
+  /* Material-inspired,Google 四色点缀;权威版见 scripts/md2html.py */
+  :root{ --fg:#202124; --muted:#5f6368; --bg:#f1f3f4; --surface:#fff; --panel:#f8f9fa;
+         --border:#e3e6ea; --accent:#1a73e8; --accent-soft:#e8f0fe; --code:#f1f3f4;
+         --g-blue:#4285f4; --g-red:#ea4335; --g-yellow:#fbbc04; --g-green:#34a853;
+         --shadow:0 1px 2px rgba(60,64,67,.08),0 2px 8px rgba(60,64,67,.08); }
+  @media (prefers-color-scheme:dark){ :root{ --fg:#e8eaed; --muted:#9aa0a6; --bg:#0e0f11;
+         --surface:#1c1d20; --panel:#26282c; --border:#3c4043; --accent:#8ab4f8;
+         --accent-soft:#1e2a3d; --code:#26282c; --shadow:0 2px 8px rgba(0,0,0,.4); } }
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:var(--bg); color:var(--fg); line-height:1.75;
+        font-family:-apple-system,Roboto,"PingFang SC","Microsoft YaHei",sans-serif; }
+  body::before{ content:""; position:fixed; top:0; left:0; right:0; height:4px; z-index:99;
+    background:linear-gradient(90deg,var(--g-blue) 0 25%,var(--g-red) 25% 50%,var(--g-yellow) 50% 75%,var(--g-green) 75% 100%); }
+  .wrap{ max-width:1040px; margin:0 auto; padding:56px 24px 120px; }
+  h1{ font-size:2.3rem; font-weight:700; letter-spacing:-.02em; }
+  h2{ font-size:1.5rem; margin:2.6em 0 .8em; padding-left:14px; border-left:4px solid var(--accent); }
+  h3{ font-size:1.2rem; } h4{ color:var(--muted); }
+  a{ color:var(--accent); text-decoration:none; }
+  .table-wrap{ margin:1.3em 0; border:1px solid var(--border); border-radius:14px;
+    overflow:hidden; box-shadow:var(--shadow); background:var(--surface); }
+  table{ border-collapse:collapse; width:100%; font-size:.92rem; }
+  th,td{ padding:11px 16px; text-align:left; border-bottom:1px solid var(--border); }
+  th{ background:var(--panel); font-weight:600; border-bottom:2px solid var(--border); }
+  tbody tr:last-child td{ border-bottom:none; } tbody tr:hover td{ background:var(--accent-soft); }
+  code{ background:var(--code); padding:.16em .45em; border-radius:6px; font-family:monospace; font-size:.86em; }
+  pre{ background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:18px 20px; overflow:auto; box-shadow:var(--shadow); }
+  pre.wireframe{ white-space:pre; font-family:"SF Mono",Menlo,Consolas,monospace; line-height:1.4; background:var(--surface); }
   /* 内联 SVG 图:白底卡片,暗色模式也清晰 */
-  .mermaid-svg{ background:#fff; border:1px solid var(--border); border-radius:8px; padding:16px; text-align:center; overflow:auto; }
+  .mermaid-svg{ background:#fff; border:1px solid var(--border); border-radius:14px; padding:22px; text-align:center; overflow:auto; box-shadow:var(--shadow); }
   .mermaid-svg svg{ max-width:100%; height:auto; }
-  blockquote{ border-left:4px solid var(--accent); margin:1em 0; padding:.4em 1em; background:var(--panel); color:var(--muted); }
-  .summary{ background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:18px 22px; font-size:1.05rem; }
-  hr{ border:none; border-top:1px solid var(--border); margin:2.4em 0; }
+  blockquote{ margin:1.1em 0; padding:.7em 1.1em; background:var(--accent-soft); border-left:4px solid var(--accent); border-radius:0 12px 12px 0; }
+  .summary{ position:relative; background:var(--surface); border:1px solid var(--border); border-radius:18px; padding:24px 28px 24px 30px; font-size:1.08rem; box-shadow:var(--shadow); overflow:hidden; }
+  .summary::before{ content:""; position:absolute; left:0; top:0; bottom:0; width:6px; background:linear-gradient(180deg,var(--g-blue),var(--g-green)); }
+  hr{ border:none; border-top:1px solid var(--border); margin:2.6em 0; }
 </style></head><body><div class="wrap">
   <!-- 正文 … -->
   <!-- 构建时渲染好的 SVG 直接内联： -->
