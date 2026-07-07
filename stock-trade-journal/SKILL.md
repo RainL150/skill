@@ -53,8 +53,11 @@ metadata:
 | `/stj 画像复盘` | 单标的画像复盘与纪律审计 | `/stj 画像复盘 RDDT.US` |
 | `/stj 更新交易画像` | 全记录画像更新复盘 | `/stj 更新交易画像` |
 | `/stj 分析持仓` | 持仓盈利、组合风险、关注列表和操作建议 | `/stj 分析一下我的持仓还有关注` |
+| `/stj 证据包` | 生成持仓、关注、行情、汇率和合并暴露证据包 | `/stj 证据包 --write` |
+| `/stj 行情` | 统一口径查询 A/H/美股价格、时间戳和汇率 | `/stj 行情 002803.SZ 0700.HK NVDA.US` |
 | `/stj 分析 <标的>` | 直接分析单只持仓/关注标的 | `/stj 分析 RDDT.US` |
 | `/stj 在线持仓` | 启动实时持仓、关注和任意标的图表网页 | `/stj 在线持仓` |
+| `/stj MCP` | 启动本地 MCP server，给 Agent 调 STJ 工具 | `/stj MCP` |
 | `/stj 同步` | 同步IBKR | `/stj 同步IBKR` |
 | `/stj 补笔记` | 扫描导入交易并补充交易画像笔记 | `/stj 补笔记` |
 
@@ -67,6 +70,9 @@ metadata:
 - ✅ **盈亏追踪**: 卖出自动计算已实现盈亏
 - ✅ **多数据源**: 手动记录 / IBKR API / CSV 导入
 - ✅ **导入后补笔记**: 导入交易后按交易画像逐笔补充主逻辑、周期、失效条件和加仓规则
+- ✅ **统一行情口径**: `quote_adapter.py` 统一 A/H/美股价格、报价时间、来源和汇率
+- ✅ **证据包快照**: `evidence_pack.py` 把持仓、关注、笔记、行情、权重和同公司暴露写入 JSON 底稿
+- ✅ **Agent 工具出口**: `mcp_server.py` 把 STJ 本地数据和证据包暴露成 MCP 工具
 - ✅ **双写存储**: SQLite + Markdown
 
 ---
@@ -168,6 +174,39 @@ python3 scripts/record_trade.py \
 ```
 
 默认手动记录交易只写入用户提供的交易笔记，不强制追问自定义画像问题。
+
+### 1.1 统一行情和证据包
+
+行情、汇率和报价时间统一走 `scripts/quote_adapter.py`。组合分析和自动化复盘应优先生成证据包，再基于证据包和交易画像输出动作建议。
+
+```bash
+python3 scripts/quote_adapter.py 002803.SZ 0700.HK NVDA.US --json
+python3 scripts/evidence_pack.py --write --json
+```
+
+`quote_adapter.py` 返回统一字段：
+
+| 字段 | 含义 |
+|------|------|
+| `price` / `currency` | 原币种价格 |
+| `regular_market_time` / `bar_time` | 报价时间，优先使用 `regular_market_time` |
+| `source` / `source_url` | 行情来源 |
+| `cny_rate` | 仅用于人民币等值权重粗估 |
+| `ok` / `error` | 行情是否确认，失败时不得用旧价格替代 |
+
+`evidence_pack.py --write` 默认写入：
+
+```text
+~/.trade-journal/results/trade-journal/snapshots/YYYY-MM-DD-evidence-pack.json
+```
+
+证据包包含：
+
+- 本地持仓、关注列表、最近笔记；
+- 统一行情、汇率、报价时间和来源；
+- 原币种浮盈亏、人民币等值粗权重；
+- 同公司/同逻辑合并暴露，目前内置吉宏 `002803.SZ` + `2603.HK` 合并；
+- `cash_not_included=true`，提醒现金未纳入权重。
 
 ### 可选：交易录入 profile
 

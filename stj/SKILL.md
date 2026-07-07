@@ -30,6 +30,8 @@ Claude 全局安装时，主 skill 脚本目录为：
 | `/stj 画像复盘 RDDT.US` | 单标的画像复盘和纪律审计 |
 | `/stj 更新交易画像` | 全记录画像更新复盘 |
 | `/stj 分析持仓` | 持仓盈利、组合风险、关注列表和操作建议 |
+| `/stj 证据包` | 生成持仓 + 关注 + 行情 + 合并暴露证据包 |
+| `/stj 行情 NVDA.US 0700.HK` | 用统一口径查询行情、时间戳和汇率 |
 | `/stj 分析 RDDT.US` | 直接分析单只持仓/关注标的 |
 | `/stj 在线持仓` | 启动实时持仓、关注和任意标的图表网页 |
 | `/stj 同步IBKR` | 同步盈透数据 |
@@ -152,6 +154,22 @@ cd ~/.claude/skills/stock-trade-journal/scripts && python3 profile_review.py all
 cd ~/.claude/skills/stock-trade-journal/scripts && python3 query_positions.py
 ```
 
+### 统一行情口径
+当用户问“查行情”“价格时间”“用最新价重算”“统一行情口径”等请求时，优先使用 `quote_adapter.py`，不要临时混用多个网页片段。
+
+```bash
+cd ~/.claude/skills/stock-trade-journal/scripts && python3 quote_adapter.py 002803.SZ 0700.HK NVDA.US --json
+```
+
+输出里必须使用：
+
+- `price` / `currency`：原币种当前价或最近收盘价；
+- `regular_market_time` 或 `bar_time`：报价时间；
+- `source` / `source_url`：行情来源；
+- `cny_rate`：仅用于人民币等值权重粗估。
+
+如果 `ok=false`，把该标的标为“行情未确认”，不要用旧价格硬算。
+
 ### 管理关注列表
 ```bash
 cd ~/.claude/skills/stock-trade-journal/scripts && python3 watchlist.py <add/ls/rm/up> [参数]
@@ -191,6 +209,7 @@ cd ~/.claude/skills/stock-trade-journal/scripts && python3 notes.py list <代码
 ```bash
 cd ~/.claude/skills/stock-trade-journal/scripts && python3 query_positions.py
 cd ~/.claude/skills/stock-trade-journal/scripts && python3 watchlist.py ls
+cd ~/.claude/skills/stock-trade-journal/scripts && python3 evidence_pack.py --write --json
 ```
 
 然后读取主 skill：
@@ -201,7 +220,8 @@ cd ~/.claude/skills/stock-trade-journal/scripts && python3 watchlist.py ls
 ```
 
 按该流程：
-- 用统一行情口径重新获取价格，并说明价格时间；
+- 优先使用 `evidence_pack.py --write --json` 生成证据包；证据包已包含统一行情、汇率、持仓权重和同公司合并暴露；
+- 用统一行情口径重新获取价格，并说明价格时间；如果证据包里的某个 quote 失败，必须标“未确认”；
 - 分原币种计算持仓浮盈亏，组合权重只做人民币等值粗估；
 - 合并同一公司跨市场暴露，例如 A 股 + H 股；
 - 按所选交易画像约束动作建议：使用 profile 中定义的仓位上限、加仓/再买规则、失效条件和复盘要求，不要硬套某个固定画像；
@@ -229,6 +249,29 @@ cd ~/.claude/skills/stock-trade-journal/scripts && python3 profile_review.py sin
 - 先给结论，再给依据、交易/持仓处理、失效条件和跟踪清单。
 
 直接分析时不要依赖外部 `invest-research-skills` 是否安装；`stock-trade-journal` 已内置完整运行时 reference。
+
+### 证据包和 MCP
+当用户说“生成证据包”“保存今日快照”“为自动化保存数据底稿”等请求时，运行：
+
+```bash
+cd ~/.claude/skills/stock-trade-journal/scripts && python3 evidence_pack.py --write --json
+```
+
+证据包默认写入：
+
+```text
+~/.trade-journal/results/trade-journal/snapshots/YYYY-MM-DD-evidence-pack.json
+```
+
+证据包是数据底稿，不替代交易结论。组合分析仍需读取 profile 和 `portfolio-watch-analysis-flow.md`，再输出动作树。
+
+如果用户要求把 STJ 挂给 Claude Code / Codex / MCP 客户端，使用：
+
+```bash
+python3 ~/.claude/skills/stock-trade-journal/scripts/mcp_server.py
+```
+
+该 MCP server 暴露 `stj_query_positions`、`stj_query_notes`、`stj_quote`、`stj_evidence_pack`，只返回客观本地数据和行情证据，不直接给买卖建议。
 
 ### 在线持仓页
 当用户要求“在线启动 node”“打开持仓网页”“实时持仓和关注页”“看某个代码的图”等类似请求时，统一启动本地服务，图表查看也在该网页内完成：

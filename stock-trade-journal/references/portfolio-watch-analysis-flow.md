@@ -23,7 +23,10 @@
 cd ~/.claude/skills/stock-trade-journal/scripts
 python3 query_positions.py
 python3 watchlist.py ls
+python3 evidence_pack.py --write --json
 ```
+
+`evidence_pack.py` 是组合分析的数据底稿。它会读取本地持仓、关注列表和最近笔记，用 `quote_adapter.py` 获取统一行情与汇率，并输出原币种浮盈亏、人民币等值粗权重和同公司合并暴露。后续文字分析必须优先引用证据包字段；如果证据包里某个 quote 返回 `ok=false`，该标的行情标为“未确认”，不要用旧价格硬算。
 
 如需判断交易节奏和最近加减仓，按标的补读：
 
@@ -65,9 +68,18 @@ Profile 是可替换的外部输入，不属于本流程的固定内容。选择
 
 不要混用零散网页片段当作精确行情。必须说明价格时间口径。
 
+优先使用本 skill 内置统一行情适配器：
+
+```bash
+cd ~/.claude/skills/stock-trade-journal/scripts
+python3 quote_adapter.py 002803.SZ 0700.HK NVDA.US --json
+```
+
+组合级分析优先从 `evidence_pack.py --write --json` 的 `quotes`、`fx_rates`、`positions` 和 `combined_exposure` 读取行情、汇率、权重和合并暴露。
+
 优先行情源：
 
-1. A 股、港股、常见美股：东方财富 push2 行情接口或同等可核验行情库。
+1. A 股、港股、常见美股：`quote_adapter.py` 统一口径；必要时再用东方财富 push2 行情接口或同等可核验行情库交叉验证。
 2. 商品/ETF 等东方财富取不到的标的：发行方页面、Yahoo Finance、交易所或可信报价页，并明确收盘日。
 3. 汇率：仅用于组合权重粗估；必须标注“估算”，不要和本地原币种成本混为一个精确总额。
 
@@ -179,7 +191,7 @@ Profile 是可替换的外部输入，不属于本流程的固定内容。选择
 推荐顺序：
 
 1. 一句话结论：先说组合状态、最大问题和第一优先动作。
-2. 数据口径：列明行情时间、汇率估算、无法确认的数据。
+2. 数据口径：列明证据包路径、行情时间、汇率估算、无法确认的数据。
 3. 当前盈亏表：原币种盈亏 + 人民币等值粗权重。
 4. 组合状态和机会成本：只能加一个选谁、必须减一个选谁、是否应等待。
 5. 组合风险和动作优先级。
