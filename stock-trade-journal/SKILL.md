@@ -1,6 +1,6 @@
 ---
 name: stock-trade-journal
-description: 交易日志系统，支持手动记录和 IBKR API 自动同步。交易表与持仓表联动，自动计算均价和盈亏。支持关注列表管理。
+description: 交易日志与本地投研工作台，支持手动记录、IBKR 同步、持仓/关注、原 STJ K 线、跨市场数据、板块知识和全局问 AI。
 triggers:
   - /stj
   - /trade
@@ -14,7 +14,7 @@ when: |
   - "导入交易记录" "从PDF导入交易" "补交易笔记" "扫描补笔记"
   - "查询持仓" "持仓盈亏" "我的持仓"
   - "关注 XXX" "加入关注" "关注列表"
-  - "分析持仓" "在线持仓" "打开持仓网页" "打开标的图表"
+  - "分析持仓" "在线持仓" "打开持仓网页" "打开标的图表" "投研工作台" "问AI设置"
   - 或直接使用 /stj 命令
 examples:
   - "/stj 记录：NVDA.US 在130买入100股"
@@ -56,7 +56,7 @@ metadata:
 | `/stj 证据包` | 生成持仓、关注、行情、汇率和合并暴露证据包 | `/stj 证据包 --write` |
 | `/stj 行情` | 统一口径查询 A/H/美股价格、时间戳和汇率 | `/stj 行情 002803.SZ 0700.HK NVDA.US` |
 | `/stj 分析 <标的>` | 直接分析单只持仓/关注标的 | `/stj 分析 RDDT.US` |
-| `/stj 在线持仓` | 启动实时持仓、关注和任意标的图表网页 | `/stj 在线持仓` |
+| `/stj 在线持仓` | 启动持仓、关注、复盘、板块与全局问 AI 投研工作台 | `/stj 在线持仓` |
 | `/stj MCP` | 启动本地 MCP server，给 Agent 调 STJ 工具 | `/stj MCP` |
 | `/stj 同步` | 同步IBKR | `/stj 同步IBKR` |
 | `/stj 补笔记` | 扫描导入交易并补充交易画像笔记 | `/stj 补笔记` |
@@ -73,6 +73,8 @@ metadata:
 - ✅ **统一行情口径**: `quote_adapter.py` 统一 A/H/美股价格、报价时间、来源和汇率
 - ✅ **证据包快照**: `evidence_pack.py` 把持仓、关注、笔记、行情、权重和同公司暴露写入 JSON 底稿
 - ✅ **Agent 工具出口**: `mcp_server.py` 把 STJ 本地数据和证据包暴露成 MCP 工具
+- ✅ **跨市场投研台**: A/港/美持仓、关注、个股详情、复盘、资讯与板块知识
+- ✅ **全局问 AI**: Claude/Qwen/DeepSeek/Codex CLI 与 11 个 API 预设，API 模式提供受控只读数据工具，支持页内复盘/资讯提炼与研究记录
 - ✅ **双写存储**: SQLite + Markdown
 
 ---
@@ -471,7 +473,9 @@ python3 scripts/sync_ibkr.py --local
 | `watchlist.py` | 关注列表管理 |
 | `analyze_holdings.py` | 本地持仓/关注分析上下文 |
 | `render_chart.py` | 在线持仓页内部使用的 ECharts 图表渲染器 |
-| `live_server.mjs` | 启动实时持仓、关注和任意标的图表网页 |
+| `dashboard_data.py` | 跨市场看板、板块和 AI 能力的结构化 JSON CLI |
+| `dashboard_chat.py` | 问 AI 的 stdin JSON / stdout NDJSON 运行入口 |
+| `live_server.mjs` | 启动投研工作台，并保留旧页面/API/图表路由 |
 | `sync_ibkr.py` | IBKR API 同步 |
 
 ---
@@ -632,9 +636,9 @@ python3 scripts/profile_review.py single RDDT.US --json
 
 ---
 
-## 在线持仓与标的图表
+## 在线投研工作台与标的图表
 
-用户要求“在线启动 node”“打开持仓网页”“实时持仓和关注页”“看某个代码的图”等需求时，统一启动本地 Node 服务，图表查看也在该网页内完成：
+用户要求“在线启动 node”“打开持仓网页”“投研工作台”“问 AI 设置”“看某个代码的图”等需求时，先读取 `references/dashboard-guide.md`，再统一启动本地 Node 服务：
 
 ```bash
 cd ~/.claude/skills/stock-trade-journal/scripts
@@ -650,14 +654,12 @@ http://127.0.0.1:8787/
 服务能力：
 
 - 每次刷新实时读取 `~/.trade-journal/results/trade-journal/db/trades.db`
-- 持仓表展示成本、实时价、收益率、总收益，涨红跌绿
-- 关注列表和持仓共用实时行情，行情来自东方财富/Yahoo
-- 点击持仓/关注标的图表时实时调用 `render_chart.py` 生成 HTML
-- 页面顶部可以输入任意代码并选择周期，支持不在持仓或关注列表里的标的，例如 `META.US`、`601021.SH`、`0700.HK`
-- 优先用 Node 拉 OHLC 并通过 `--price-json` 传给图表脚本，减少 Python 网络源失败的影响
-- 图表会自动叠加本地交易、关注和持仓笔记；没有本地记录的代码只显示行情图
+- 左侧菜单覆盖持仓、关注、每日复盘、资讯雷达、板块知识、研究记录与问 AI 设置
+- 持仓和关注共用个股详情；K 线继续复用原 STJ `/chart` 和交易/关注/笔记记录
+- 支持订阅 CLI 与自带 API 两类 AI 配置，所有页面共用同一抽屉；复盘/资讯可页内生成，API 工具只读
+- 保留 `/api/data`、`/chart`、`/charts/*`；`STJ_DASHBOARD_V2=0` 可恢复旧首页
 
-可用环境变量：`STJ_WORKSPACE`、`STJ_DB`、`STJ_RENDER_CHART`、`STJ_QUOTE_TIMEOUT_MS`、`HOST`、`PORT`。
+完整模型目录、AI 数据工具、缓存/来源、备份恢复和环境变量见 `references/dashboard-guide.md`。
 
 ---
 

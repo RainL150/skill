@@ -1,0 +1,49 @@
+{
+  "timeseries": {
+    "result": [
+      {
+        "meta": {"symbol": ["TEST"], "type": ["annualTotalRevenue"]},
+        "annualTotalRevenue": [
+          {"asOfDate": "2025-12-31", "periodType": "12M", "currencyCode": "USD", "reportedValue": {"raw": 1000}}
+        ]
+      },
+      {
+        "meta": {"symbol": ["TEST"], "type": ["annualNetIncome"]},
+        "annualNetIncome": [
+          {"asOfDate": "2025-12-31", "periodType": "12M", "currencyCode": "USD", "reportedValue": {"raw": 100}}
+        ]
+      },
+      {
+        "meta": {"symbol": ["TEST"], "type": ["annualGrossProfit"]},
+        "annualGrossProfit": [
+          {"asOfDate": "2025-12-31", "periodType": "12M", "currencyCode": "USD", "reportedValue": {"raw": 400}}
+        ]
+      },
+      {
+        "meta": {"symbol": ["TEST"], "type": ["annualOperatingCashFlow"]},
+        "annualOperatingCashFlow": [
+          {"asOfDate": "2025-12-31", "periodType": "12M", "currencyCode": "USD", "reportedValue": {"raw": 160}}
+        ]
+      },
+      {
+        "meta": {"symbol": ["TEST"], "type": ["annualCapitalExpenditure"]},
+        "annualCapitalExpenditure": [
+          {"asOfDate": "2025-12-31", "periodType": "12M", "currencyCode": "USD", "reportedValue": {"raw": -60}}
+        ]
+      },
+      {
+        "meta": {"symbol": ["TEST"], "type": ["annualTotalAssets"]},
+        "annualTotalAssets": [
+          {"asOfDate": "2025-12-31", "periodType": "12M", "currencyCode": "USD", "reportedValue": {"raw": 500}}
+        ]
+      },
+      {
+        "meta": {"symbol": ["TEST"], "type": ["annualTotalLiabilitiesNetMinorityInterest"]},
+        "annualTotalLiabilitiesNetMinorityInterest": [
+          {"asOfDate": "2025-12-31", "periodType": "12M", "currencyCode": "USD", "reportedValue": {"raw": 200}}
+        ]
+      }
+    ],
+    "error": null
+  }
+}

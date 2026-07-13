@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>STJ 投研工作台</title>
+  <link rel="stylesheet" href="/assets/dashboard.css">
+  <script defer src="/assets/dashboard.js"></script>
+  <script defer src="/assets/alpine.min.js"></script>
+</head>
+<body x-data="dashboardApp" x-init="init()" @keydown.escape.window="closeTopLayer()" @keydown.meta.k.window.prevent="openAi()" x-cloak>
+  <aside class="sidebar" :class="{'mobile-open': menuOpen}" aria-label="主菜单">
+    <div class="brand">
+      <span class="brand-mark">S</span>
+      <span class="brand-copy"><b>STJ 投研台</b><small>Journal × Research</small></span>
+      <button class="icon-button mobile-only" @click="menuOpen=false" aria-label="关闭菜单">×</button>
+    </div>
+    <div class="nav-label">工作台</div>
+    <nav class="side-nav">
+      <template x-for="item in navigation" :key="item.id">
+        <button class="nav-item" :class="{'active':page===item.id}" @click="navigate(item.id)">
+          <span class="nav-icon" x-text="item.icon"></span>
+          <span x-text="item.label"></span>
+          <span class="nav-badge" x-show="badgeFor(item.id)" x-text="badgeFor(item.id)"></span>
+        </button>
+      </template>
+    </nav>
+    <div class="sidebar-spacer"></div>
+    <section class="sidebar-ai">
+      <span>✦ PROJECT AI</span>
+      <b>带着当前页面问</b>
+      <p>自动挂载持仓、笔记、行情、新闻、研报与板块知识。</p>
+      <button @click="openAi()">问 AI <kbd>⌘K</kbd></button>
+    </section>
+    <button class="nav-item" :class="{'active':page==='ai-settings'}" @click="navigate('ai-settings')">
+      <span class="nav-icon">⚙</span><span>问 AI 设置</span>
+    </button>
+    <div class="sync-state"><i></i><span>本地台账 · <span x-text="lastUpdatedLabel"></span></span></div>
+  </aside>
+
+  <div class="mobile-backdrop" x-show="menuOpen" @click="menuOpen=false"></div>
+
+  <div class="app-shell">
+    <header class="topbar">
+      <button class="icon-button mobile-only" @click="menuOpen=true" aria-label="打开菜单">☰</button>
+      <div class="page-title"><small>STJ / WORKSPACE</small><h1 x-text="pageTitle"></h1></div>
+      <label class="global-search">
+        <span>⌕</span>
+        <input x-model="searchCode" @keydown.enter.prevent="openStock(searchCode)" placeholder="输入代码，如 NVDA.US / 0700.HK">
+        <kbd>↵</kbd>
+      </label>
+      <button class="button" @click="reloadCurrent()" :disabled="currentLoading">↻ 刷新</button>
+      <button class="button primary" @click="openAi()">✦ 问 AI</button>
+    </header>
+
+    <main class="content">
+      <div class="global-notice error" x-show="globalError">
+        <span x-text="globalError"></span><button @click="globalError=''">×</button>
+      </div>
+
+      <!-- 持仓 -->
+      <section class="page" x-show="page==='positions'">
+        <div class="page-head">
+          <div><h2>持仓</h2><p>跨市场人民币估算权重 · 收益金额与收益率合并 · 点击标的进入详情</p></div>
+          <button class="button soft" @click="openAi('分析当前组合最重要的风险、反证和待处理动作')">✦ 分析全部持仓</button>
+        </div>
+        <div class="skeleton-grid" x-show="loading.portfolio"><i></i><i></i><i></i><i></i></div>
+        <template x-if="portfolio">
+          <div>
+            <div class="kpi-grid">
+              <article class="kpi"><span>总市值 · CNY 估算</span><b x-text="moneyCny(portfolio.summary.total_market_value_cny_est)"></b><small>未纳入现金</small></article>
+              <article class="kpi"><span>总浮动/已实现收益</span><b :class="pnlClass(portfolio.summary.total_pnl_cny_est)" x-text="signedMoney(portfolio.summary.total_pnl_cny_est,'CNY')"></b><small>按当前报价与汇率</small></article>
+              <article class="kpi"><span>今日盈亏 · CNY 估算</span><b :class="pnlClass(portfolio.summary.today_pnl_cny_est)" x-text="signedMoney(portfolio.summary.today_pnl_cny_est,'CNY')"></b><small x-text="`${portfolio.summary.up_count} 涨 · ${portfolio.summary.down_count} 跌`"></small></article>
+              <article class="kpi"><span>待处理提醒</span><b x-text="portfolio.summary.alert_count"></b><small>目标 / 止损 / 数据状态</small></article>
+            </div>
+            <article class="panel">
+              <header class="panel-head"><div><h3>全部持仓</h3><p>权重按同一时点人民币市值估算</p></div><div class="source-time" x-text="metaLabel(meta.portfolio)"></div></header>
+              <div class="state partial" x-show="errors.portfolio.length"><b>部分数据不可用</b><span x-text="`${errors.portfolio.length} 个模块失败，成功数据仍可使用`"></span></div>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>标的</th><th>市场</th><th class="right">权重</th><th class="right">数量</th><th class="right">成本</th><th class="right">现价 / 今日</th><th class="right">总收益 / 收益率</th><th>状态</th><th></th></tr></thead>
+                  <tbody>
+                    <template x-for="row in portfolio.positions" :key="row.asset.ts_code">
+                      <tr class="clickable" @click="openStock(row.asset.ts_code)">
+                        <td><div class="stock-cell"><span class="stock-logo" x-text="initials(row.asset)"></span><span><b x-text="row.asset.name"></b><small x-text="row.asset.ts_code"></small></span></div></td>
+                        <td><span class="market-chip" :class="row.asset.market_group.toLowerCase()" x-text="marketName(row.asset.market_group)"></span></td>
+                        <td class="right"><div class="weight-cell"><b x-text="percent(row.weight)"></b><i><em :style="`width:${Math.min(row.weight||0,100)}%`"></em></i></div></td>
+                        <td class="right mono" x-text="number(row.quantity,0)"></td>
+                        <td class="right mono"><b x-text="number(row.avg_cost,2)"></b><small x-text="row.currency"></small></td>
+                        <td class="right quote-cell"><b x-text="number(row.quote.last,2)"></b><small :class="pnlClass(row.quote.change_pct)" x-text="signedPercent(row.quote.change_pct)"></small></td>
+                        <td class="right"><span class="pnl-pill" :class="pnlClass(row.total_return_original)"><b x-text="signedMoney(row.total_return_original,row.currency)"></b><small x-text="signedPercent(row.return_rate)"></small></span></td>
+                        <td><span class="status-dot" :class="row.data_status"></span><span x-text="statusLabel(row.data_status)"></span></td>
+                        <td><button class="link-button">详情 →</button></td>
+                      </tr>
+                    </template>
+                    <tr x-show="!portfolio.positions.length"><td colspan="9"><div class="empty">暂无持仓</div></td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </article>
+            <article class="panel section-gap" x-show="portfolio.combined_exposure.some(x=>x.symbols.length>1)">
+              <header class="panel-head"><div><h3>同公司跨市场暴露</h3><p>A/H 股等同一公司持仓合并观察</p></div></header>
+              <div class="compact-list"><template x-for="item in portfolio.combined_exposure.filter(x=>x.symbols.length>1)" :key="item.exposure_key"><div><b x-text="item.symbols.join(' + ')"></b><span x-text="`${moneyCny(item.cny_market_value_est)} · ${percent(item.cny_weight_est)}`"></span></div></template></div>
+            </article>
+          </div>
+        </template>
+        <div class="state error" x-show="!loading.portfolio && !portfolio"><b>持仓加载失败</b><button class="button" @click="loadPortfolio()">重试</button></div>
+      </section>
+
+      <!-- 关注 -->
+      <section class="page" x-show="page==='watch'">
+        <div class="page-head"><div><h2>关注</h2><p>目标、止损、研究状态与观察笔记统一维护</p></div><button class="button soft" @click="openAi('对比当前关注标的的证据、风险与等待条件')">✦ 对比关注标的</button></div>
+        <div class="skeleton-grid" x-show="loading.watchlist"><i></i><i></i><i></i></div>
+        <template x-if="watchlist">
+          <article class="panel">
+            <header class="panel-head"><div><h3>关注列表</h3><p x-text="`${watchlist.summary.count} 个标的 · 按优先级与更新时间`"></p></div><div class="source-time" x-text="metaLabel(meta.watchlist)"></div></header>
+            <div class="table-wrap"><table><thead><tr><th>标的</th><th>市场</th><th>标签</th><th class="right">现价 / 今日</th><th class="right">目标价</th><th class="right">距目标</th><th class="right">止损</th><th>最近记录</th><th></th></tr></thead><tbody>
+              <template x-for="row in watchlist.watchlist" :key="row.asset.ts_code"><tr class="clickable" @click="openStock(row.asset.ts_code)">
+                <td><div class="stock-cell"><span class="stock-logo" x-text="initials(row.asset)"></span><span><b x-text="row.asset.name"></b><small x-text="row.asset.ts_code"></small></span></div></td>
+                <td><span class="market-chip" :class="row.asset.market_group.toLowerCase()" x-text="marketName(row.asset.market_group)"></span></td>
+                <td><span class="tag" x-text="row.category||'default'"></span></td>
+                <td class="right quote-cell"><b x-text="number(row.quote.last,2)"></b><small :class="pnlClass(row.quote.change_pct)" x-text="signedPercent(row.quote.change_pct)"></small></td>
+                <td class="right mono" x-text="number(row.target_price,2)"></td>
+                <td class="right" :class="pnlClass(-row.distance_to_target_pct)" x-text="signedPercent(row.distance_to_target_pct)"></td>
+                <td class="right mono" x-text="number(row.stop_loss,2)"></td>
+                <td><span x-text="row.recent_notes[0]?.note||'暂无观察记录'"></span><small x-text="shortDate(row.recent_notes[0]?.timestamp)"></small></td>
+                <td><button class="link-button">详情 →</button></td>
+              </tr></template>
+              <tr x-show="!watchlist.watchlist.length"><td colspan="9"><div class="empty">暂无关注标的</div></td></tr>
+            </tbody></table></div>
+          </article>
+        </template>
+      </section>
+
+      <!-- 每日复盘 -->
+      <section class="page" x-show="page==='daily'">
+        <div class="page-head"><div><h2>每日复盘</h2><p>大盘指数、全球市场、市场温度与轮动，严格区分真实资金流和表现代理</p></div><button class="button soft" @click="openAi('生成今天的跨市场复盘，并列出证据与风险')">✦ 生成今日复盘</button></div>
+        <div class="segmented"><template x-for="item in ['A','HK','US']"><button :class="{'active':dailyMarket===item}" @click="setDailyMarket(item)" x-text="marketName(item)"></button></template></div>
+        <article class="panel inline-ai-card">
+          <header class="panel-head"><div><h3>✦ AI 当日复盘</h3><p>直接在页面内生成，可重跑并存入研究记录</p></div><div class="inline-ai-actions"><button class="button" x-show="inlineAi.daily.loading" @click="stopInlineAi('daily')">停止</button><button class="button soft" :disabled="inlineAi.daily.loading" @click="runInlineAi('daily')" x-text="inlineAi.daily.content?'↻ 重新生成':'✦ 生成复盘'"></button></div></header>
+          <div class="inline-ai-empty" x-show="!inlineAi.daily.content&&!inlineAi.daily.loading&&!inlineAi.daily.error">AI 会结合当前市场的大盘指数、全球市场、市场温度和轮动数据生成结构化复盘。</div>
+          <div class="inline-ai-output" x-show="inlineAi.daily.content" x-text="inlineAi.daily.content"></div>
+          <div class="inline-ai-loading" x-show="inlineAi.daily.loading"><i></i><span>正在生成，内容会实时铺开…</span></div>
+          <div class="inline-ai-error" x-show="inlineAi.daily.error"><span x-text="inlineAi.daily.error"></span><button @click="runInlineAi('daily')">重试</button></div>
+          <footer class="inline-ai-footer" x-show="inlineAi.daily.content&&!inlineAi.daily.loading"><span x-text="`${activeAiName} · ${inlineAi.daily.sources.length} 个来源`"></span><button x-show="aiConfig?.ui_options?.allow_research_save!==false" @click="saveInlineAi('daily')" x-text="inlineAi.daily.saved?'✓ 已存入研究记录':'存入研究记录'"></button></footer>
+        </article>
+        <div class="state loading" x-show="loading.daily">正在同步全球指数与市场轮动…</div>
+        <template x-if="daily">
+          <div class="stack">
+            <article class="panel">
+              <header class="panel-head"><div><h3>大盘指数与全球市场</h3><p x-text="marketStatusLabel(daily.market_status)"></p></div><div class="source-time" x-text="metaLabel(meta.daily)"></div></header>
+              <div class="index-grid"><template x-for="row in daily.indices" :key="row.key"><div class="index-card"><span><b x-text="row.name"></b><em class="market-chip" :class="row.market.toLowerCase()" x-text="row.market"></em></span><strong x-text="number(row.price,2)"></strong><small :class="pnlClass(row.change_pct)" x-text="signedPercent(row.change_pct)"></small><time x-text="shortDateTime(row.as_of)"></time></div></template></div>
+            </article>
+            <div class="two-columns">
+              <article class="panel">
+                <header class="panel-head"><div><h3 x-text="daily.temperature.label||'市场宽度'"></h3><p x-text="daily.temperature.basis"></p></div><span class="status-badge" :class="{'online':daily.temperature.metric_kind==='market_breadth'}" x-text="daily.temperature.metric_kind==='market_breadth'?'涨跌家数':'表现代理'"></span></header>
+                <div class="temperature">
+                  <div class="temperature-headline"><strong x-text="daily.temperature.breadth"></strong><small x-show="daily.temperature.positive_ratio!=null" x-text="`上涨占比 ${number(daily.temperature.positive_ratio,1)}% · 平衡分 ${number(daily.temperature.balance_score,1)}`"></small></div>
+                  <div class="breadth-bar" aria-label="上涨、下跌和平盘样本比例"><i class="up" :style="breadthStyle('positive')"></i><i class="flat" :style="breadthStyle('flat')"></i><i class="down" :style="breadthStyle('negative')"></i></div>
+                  <div class="breadth-stats"><span><em class="profit"></em><small x-text="daily.temperature.metric_kind==='market_breadth'?'上涨':'正向样本'"></small><b class="profit" x-text="daily.temperature.positive_count"></b></span><span><em class="neutral"></em><small x-text="daily.temperature.metric_kind==='market_breadth'?'平盘':'持平样本'"></small><b x-text="daily.temperature.flat_count"></b></span><span><em class="loss"></em><small x-text="daily.temperature.metric_kind==='market_breadth'?'下跌':'负向样本'"></small><b class="loss" x-text="daily.temperature.negative_count"></b></span></div>
+                  <footer x-text="daily.temperature.sample_count?`共 ${daily.temperature.sample_count} 个样本 · ${shortDateTime(daily.temperature.as_of)}`:'当前没有可靠样本，不给强弱结论'"></footer>
+                  <section class="market-leaders" x-show="daily.market==='A'">
+                    <div class="market-leaders-head"><span><b x-text="daily.leaders_label||'领涨公司'"></b><small x-text="`${daily.leaders_basis} · ${shortDateTime(daily.leaders_as_of)}`"></small></span><em x-show="daily.leaders?.length" x-text="`${daily.leaders.length} 家`"></em></div>
+                    <div class="market-leader-list">
+                      <template x-for="(row,index) in (daily.leaders||[])" :key="row.asset.ts_code">
+                        <button type="button" class="market-leader" @click="openStock(row.asset.ts_code)" :aria-label="`打开 ${row.asset.name} 详情`">
+                          <span class="market-leader-rank" x-text="index+1"></span>
+                          <span class="market-leader-company"><b x-text="row.asset.name"></b><small x-text="`${row.asset.ts_code} · ${row.industry||'行业未分类'}`"></small></span>
+                          <span class="market-leader-price"><small>现价</small><b x-text="number(row.price,2)"></b></span>
+                          <span class="market-leader-change"><b class="profit" x-text="signedPercent(row.change_pct)"></b><small x-text="row.turnover_pct==null?'换手 —':`换手 ${number(row.turnover_pct,1)}%`"></small></span>
+                        </button>
+                      </template>
+                      <div class="market-leader-empty" x-show="!daily.leaders?.length">领涨公司数据暂不可用</div>
+                    </div>
+                  </section>
+                </div>
+              </article>
+              <article class="panel"><header class="panel-head"><div><h3 x-text="daily.rotation_label"></h3><p x-text="daily.rotation_metric_kind==='net_flow'?'A 股真实行业主力净流入/流出；长度按本组最大绝对值归一':'港美行业/ETF 表现代理；长度按本组最大绝对值归一，不代表资金净流入'"></p></div></header><div class="rotation-list"><template x-for="row in daily.rotation" :key="row.sector_name"><div class="rotation-row"><span><b x-text="row.sector_name"></b><small x-text="row.proxy_symbol||row.source"></small></span><i><em :class="pnlClass(rotationValue(row))" :style="rotationStyle(row)"></em></i><strong :class="pnlClass(rotationValue(row))" x-text="rotationLabel(row)"></strong></div></template><div class="empty" x-show="!daily.rotation.length">该市场暂无可靠轮动数据</div></div></article>
+            </div>
+          </div>
+        </template>
+      </section>
+
+      <!-- 资讯雷达 -->
+      <section class="page" x-show="page==='intel'">
+        <div class="page-head"><div><h2>资讯雷达</h2><p>持仓与关注的新闻、研报、监管披露，以及独立 Investment News</p></div><button class="button soft" @click="openAi('总结资讯雷达里最影响我组合的变化与风险')">✦ 解读资讯</button></div>
+        <div class="filter-row">
+          <template x-for="item in intelScopes"><button class="filter-chip" :class="{'active':intelFilter.scope===item.id}" @click="intelFilter.scope=item.id;loadIntel()" x-text="item.label"></button></template>
+          <span class="filter-divider"></span>
+          <template x-for="item in ['all','A','HK','US']"><button class="filter-chip" :class="{'active':intelFilter.market===item}" @click="intelFilter.market=item;loadIntel()" x-text="item==='all'?'全部市场':marketName(item)"></button></template>
+        </div>
+        <article class="panel inline-ai-card">
+          <header class="panel-head"><div><h3>✦ AI 资讯要点</h3><p>提炼当前筛选，或分别梳理持仓、关注与 Investment News</p></div><div class="inline-ai-actions"><button class="button" x-show="inlineAi.intel.loading" @click="stopInlineAi('intel')">停止</button><button class="button" :disabled="inlineAi.intel.loading" @click="runInlineAi('intel')">提炼当前筛选</button><button class="button soft" :disabled="inlineAi.intel.loading" @click="runIntelBulk()">一键提炼全部要点</button></div></header>
+          <div class="inline-ai-progress" x-show="inlineAi.intel.bulkRunning"><i :style="`width:${inlineAi.intel.total?inlineAi.intel.done/inlineAi.intel.total*100:0}%`"></i><span x-text="`${inlineAi.intel.done}/${inlineAi.intel.total}`"></span></div>
+          <div class="inline-ai-empty" x-show="!inlineAi.intel.content&&!inlineAi.intel.loading&&!inlineAi.intel.error">保留新闻事实、报告结论、组合影响、风险信号和待验证项。</div>
+          <div class="inline-ai-output" x-show="inlineAi.intel.content" x-text="inlineAi.intel.content"></div>
+          <div class="inline-ai-loading" x-show="inlineAi.intel.loading"><i></i><span x-text="inlineAi.intel.bulkRunning?'正在分范围提炼…':'正在提炼当前筛选…'"></span></div>
+          <div class="inline-ai-error" x-show="inlineAi.intel.error"><span x-text="inlineAi.intel.error"></span><button @click="runInlineAi('intel')">重试当前筛选</button></div>
+          <footer class="inline-ai-footer" x-show="inlineAi.intel.content&&!inlineAi.intel.loading"><span x-text="`${activeAiName} · ${inlineAi.intel.sources.length} 个来源`"></span><button x-show="aiConfig?.ui_options?.allow_research_save!==false" @click="saveInlineAi('intel')" x-text="inlineAi.intel.saved?'✓ 已存入研究记录':'存入研究记录'"></button></footer>
+        </article>
+        <div class="state loading" x-show="loading.intel">正在聚合新闻、研报和披露…</div>
+        <template x-if="intel">
+          <article class="panel intel-panel">
+            <header class="panel-head"><div><h3>按相关度与风险排序</h3><p x-text="`${intel.universe_count} 个相关标的`"></p></div><div class="source-time" x-text="metaLabel(meta.intel)"></div></header>
+            <div class="intel-list"><template x-for="item in intel.items" :key="item.dedupe_key"><a class="intel-item" :href="safeLink(item.source_url)" target="_blank" rel="noopener noreferrer"><div><span class="tag" :class="item.kind" x-text="kindName(item.kind)"></span><span class="tag scope" x-text="scopeName(item.scope)"></span><template x-for="risk in item.risk_tags"><span class="tag risk" x-text="risk"></span></template></div><h3 x-text="item.title"></h3><p x-text="item.summary||'打开原文查看完整内容'"></p><footer><span x-text="item.source_name"></span><time x-text="shortDateTime(item.published_at)"></time><span x-show="item.related_assets?.length" x-text="item.related_assets?.join(' · ')"></span></footer></a></template><div class="empty" x-show="!intel.items.length">当前筛选下暂无资讯</div></div>
+          </article>
+        </template>
+      </section>
+
+      <!-- 板块知识 -->
+      <section class="page" x-show="page==='sectors'">
+        <div class="page-head"><div><h2>板块知识</h2><p>自己维护标签、核心知识、关联标的和上下游产业链</p></div><button class="button primary" @click="sectorModal=true">＋ 新建板块</button></div>
+        <div class="sector-layout">
+          <aside class="panel sector-list"><header class="panel-head"><div><h3>我的板块</h3><p>本地知识库</p></div><button class="mini-toggle" :class="{'active':showArchivedSectors}" @click="toggleArchivedSectors()" x-text="showArchivedSectors?'隐藏归档':'含归档'"></button></header><template x-for="item in sectors" :key="item.id"><button :class="{'active':selectedSector?.id===item.id,'archived':item.status==='archived'}" @click="selectSector(item.id)"><span><b x-text="item.name"></b><small x-text="item.status==='archived'?'已归档':item.summary||'暂无摘要'"></small></span><em x-text="item.nodes.length"></em></button></template><div class="empty" x-show="!sectors.length">还没有板块，先新建一个</div></aside>
+          <div class="stack" x-show="selectedSector">
+            <article class="panel sector-hero"><header><div><span class="eyebrow">SECTOR KNOWLEDGE</span><h2 x-text="selectedSector?.name"></h2><p x-text="selectedSector?.summary||'补充这个板块的研究目标和关键变量'"></p></div><div class="hero-actions"><button class="button" @click="openSectorEdit()">编辑</button><button class="button danger-text" x-show="selectedSector?.status!=='archived'" @click="archiveSelectedSector()">归档</button><button class="button primary" x-show="selectedSector?.status==='archived'" @click="restoreSelectedSector()">恢复</button></div></header><div class="tag-row"><template x-for="tag in selectedSector?.tags||[]"><span class="tag editable"><span x-text="tag.name"></span><button @click="deleteSectorResource('tags',tag.id)">×</button></span></template><form @submit.prevent="addSectorTag()"><input x-model="sectorForms.tag" placeholder="新增标签"><button>＋</button></form></div></article>
+            <div class="prompt-grid"><template x-for="prompt in sectorPrompts"><button @click="openAi(prompt)" x-text="`✦ ${prompt}`"></button></template></div>
+            <article class="panel"><header class="panel-head"><div><h3>产业链地图</h3><p>上游 → 中游 → 下游；卡脖子节点单独标记</p></div></header><div class="chain-grid"><template x-for="stage in sectorStages"><section><h4 x-text="stage.label"></h4><template x-for="node in sectorNodes(stage.id)" :key="node.id"><div class="chain-node" :class="{'bottleneck':node.bottleneck}"><button class="node-copy" @click="openSectorNode(node)"><b x-text="node.name"></b><small x-text="node.description||'暂无说明'"></small></button><button @click="deleteSectorResource('nodes',node.id)" aria-label="删除节点">×</button></div></template><button class="chain-add" @click="openSectorNode(null,stage.id)">＋ 添加节点</button></section></template></div><div class="edge-list" x-show="selectedSector?.edges?.length"><b>节点关系</b><template x-for="edge in selectedSector?.edges||[]"><span><span x-text="edgeLabel(edge)"></span><button @click="deleteSectorResource('edges',edge.id)">×</button></span></template></div><form class="edge-form" x-show="selectedSector?.nodes?.length>=2" @submit.prevent="addSectorEdge()"><select x-model="sectorForms.edge.from_node_id" required><option value="">起点</option><template x-for="node in selectedSector?.nodes||[]"><option :value="node.id" x-text="node.name"></option></template></select><span>→</span><select x-model="sectorForms.edge.to_node_id" required><option value="">终点</option><template x-for="node in selectedSector?.nodes||[]"><option :value="node.id" x-text="node.name"></option></template></select><input x-model="sectorForms.edge.relation" placeholder="关系，如 supplies"><button class="button">添加关系</button></form></article>
+            <div class="two-columns">
+              <article class="panel"><header class="panel-head"><div><h3>核心知识</h3><p>来源和资料日期可追踪</p></div><button class="link-button" @click="openSectorKnowledge()">＋ 添加</button></header><div class="knowledge-list"><template x-for="item in selectedSector?.knowledge||[]"><div><span class="tag" :class="item.kind" x-text="knowledgeKind(item.kind)"></span><b x-text="item.title"></b><p x-text="item.content"></p><footer><a :href="safeLink(item.source_url)" target="_blank" rel="noopener" x-show="item.source_url">原始来源</a><time x-text="item.as_of||'个人判断'"></time><button @click="openSectorKnowledge(item)">编辑</button><button @click="deleteSectorResource('knowledge',item.id)">删除</button></footer></div></template><div class="empty" x-show="!selectedSector?.knowledge?.length">还没有核心知识</div></div></article>
+              <article class="panel"><header class="panel-head"><div><h3>关联标的</h3><p>只用于知识映射，不自动交易</p></div></header><div class="symbol-list"><template x-for="item in selectedSector?.symbols||[]"><div><button @click="openStock(item.ts_code)"><b x-text="item.ts_code"></b><small x-text="item.role||'关联标的'"></small></button><button @click="deleteSectorSymbol(item.ts_code)">×</button></div></template><form @submit.prevent="addSectorSymbol()"><input x-model="sectorForms.symbol" placeholder="如 NVDA.US"><input x-model="sectorForms.symbolRole" placeholder="角色"><button class="button">添加</button></form></div></article>
+            </div>
+          </div>
+          <article class="panel empty-sector" x-show="!selectedSector"><div class="empty"><b>选择或新建一个板块</b><span>维护产业链、关键变量、风险与核心知识</span></div></article>
+        </div>
+      </section>
+
+      <!-- 研究记录 -->
+      <section class="page" x-show="page==='research'">
+        <div class="page-head"><div><h2>研究记录</h2><p>集中查看从全局问 AI、当日复盘和资讯提炼中主动保存的结论</p></div><div class="page-actions"><button class="button" @click="loadResearchRecords()" :disabled="loading.research">↻ 刷新</button><button class="button danger-text" @click="clearResearchRecords()" :disabled="!researchRecords.length">清空全部</button></div></div>
+        <div class="state loading" x-show="loading.research">正在读取本地研究记录…</div>
+        <div class="research-list" x-show="!loading.research&&researchRecords.length">
+          <template x-for="record in researchRecords" :key="record.id">
+            <article class="panel research-card" :class="{'expanded':researchExpanded[record.id]}">
+              <header @click="toggleResearchRecord(record.id)"><div><div class="research-meta"><span class="tag" x-text="researchScopeName(record.scope_type)"></span><span x-show="record.ts_code" x-text="record.ts_code"></span><span x-show="record.sector_id" x-text="`板块 #${record.sector_id}`"></span><time x-text="shortDateTime(record.created_at)"></time></div><h3 x-text="record.question"></h3><p x-show="!researchExpanded[record.id]" x-text="record.answer"></p></div><span class="research-chevron" x-text="researchExpanded[record.id]?'⌃':'⌄'"></span></header>
+              <div class="research-body" x-show="researchExpanded[record.id]"><div class="research-answer" x-text="record.answer"></div><div class="research-sources" x-show="record.sources?.length"><b>来源</b><template x-for="source in record.sources"><a :href="sourceUrl(source)" target="_blank" rel="noopener" x-text="sourceLabel(source)"></a></template></div></div>
+              <footer><span x-text="record.model_label||'未记录模型'"></span><button x-show="record.ts_code||record.sector_id" @click.stop="openResearchTarget(record)">打开研究对象</button><button class="danger-text" @click.stop="deleteResearchRecord(record.id)">删除</button></footer>
+            </article>
+          </template>
+        </div>
+        <article class="panel" x-show="!loading.research&&!researchRecords.length"><div class="empty research-empty"><b>还没有研究记录</b><span>在问 AI、AI 当日复盘或资讯提炼的回答下点击“存入研究记录”。</span><button class="button soft" @click="openAi('总结当前页面最值得保存的研究结论')">✦ 开始研究</button></div></article>
+      </section>
+
+      <!-- AI 设置 -->
+      <section class="page" x-show="page==='ai-settings'">
+        <div class="page-head"><div><h2>问 AI 设置</h2><p>订阅 CLI 与自带 API 两种接入方式；当前配置在所有页面共用</p></div><button class="button" @click="clearAiConfig()">清除 AI 配置</button></div>
+        <div class="security-banner"><span>⌁</span><div><b>密钥只保存在当前浏览器</b><p>AI API Key 不写入 STJ 数据库；后端访问密钥独立保存。服务端仅在一次请求内使用配置，不回显密钥。</p></div></div>
+        <div class="ai-settings-layout">
+          <div class="settings-side stack">
+            <article class="panel active-connection"><header class="panel-head"><div><h3>当前连接</h3><p>全站问 AI 共用</p></div><span class="status-badge" :class="{'online':aiConfigured}" x-text="aiConfigured?'已配置':'未配置'"></span></header><div class="active-connection-body"><span class="ai-orb">✦</span><div><b x-text="activeAiName"></b><p x-text="activeAiDescription"></p></div></div><div class="connection-test"><button class="button soft" :disabled="aiTest.loading" @click="testAiConfig()" x-text="aiTest.loading?'测试中…':'用当前表单试问'"></button><span x-show="aiTest.result" :class="aiTest.ok?'profit':'loss'" x-text="aiTest.result"></span></div></article>
+            <article class="panel access-key-card"><header class="panel-head"><div><h3>后端访问密钥</h3><p>STJ_API_KEY，可选且独立于模型</p></div></header><div><label>访问密钥<input type="password" x-model="backendDraft" autocomplete="off" placeholder="仅服务端启用鉴权时填写"></label><p>用于访问本地 STJ HTTP API，不会发送给模型供应商。</p><footer><span x-text="backendSaveMessage"></span><button class="button" @click="saveBackendAccessKey()">单独保存</button></footer></div></article>
+          </div>
+          <article class="panel config-panel">
+            <div class="access-mode-cards"><button :class="{'active':aiDraft.mode==='cli'}" @click="setAiMode('cli')"><span>⌘</span><b>订阅 CLI</b><small>复用本机登录态，无需另填模型 API Key</small></button><button :class="{'active':aiDraft.mode==='api'}" @click="setAiMode('api')"><span>↗</span><b>自带 API</b><small>支持多供应商、流式输出与只读数据工具</small></button></div>
+            <div class="mode-tabs"><button :class="{'active':aiDraft.mode==='cli'}" @click="setAiMode('cli')">订阅 CLI</button><button :class="{'active':aiDraft.mode==='api'}" @click="setAiMode('api')">自带 API</button></div>
+            <div x-show="aiDraft.mode==='cli'">
+              <div class="provider-grid"><template x-for="model in aiCatalog.cli" :key="model.id"><button class="provider-card" :class="{'selected':aiDraft.model===model.id,'disabled':model.coming_soon||model.available===false}" :disabled="model.coming_soon||model.available===false" @click="selectCliModel(model)"><span class="provider-icon" x-text="model.name.slice(0,1)"></span><span><b x-text="model.name"></b><small x-text="model.coming_soon?'即将支持':model.available===false?'本机未检测到':model.description"></small><em x-show="model.security_note" x-text="model.security_note"></em></span><i x-show="model.available">可用</i></button></template></div>
+            </div>
+            <div x-show="aiDraft.mode==='api'" class="api-config">
+              <label>模型预设<select x-model="apiPreset" @change="selectApiPreset()"><template x-for="model in aiCatalog.api"><option :value="model.id" x-text="model.name"></option></template></select></label>
+              <div class="config-grid"><label>Base URL<input x-model="aiDraft.base_url" placeholder="https://api.example.com/v1"></label><label>Model / Endpoint ID<input x-model="aiDraft.model" placeholder="模型名；豆包填 ep-…"></label><label class="full">API Key<input type="password" x-model="aiDraft.api_key" autocomplete="off" placeholder="仅保存在浏览器 localStorage"></label></div>
+            </div>
+            <div class="config-note"><b>能力差异</b><span>API：流式 + 只读 function calling；CLI：流式 + 服务端预装页面与 STJ 上下文，不调用数据工具。</span></div>
+            <div class="option-group"><b>默认挂载范围</b><div class="context-options"><label><input type="checkbox" x-model="aiDraft.default_context.portfolio">持仓</label><label><input type="checkbox" x-model="aiDraft.default_context.watchlist">关注</label><label><input type="checkbox" x-model="aiDraft.default_context.notes">笔记</label><label><input type="checkbox" x-model="aiDraft.default_context.news">新闻/研报</label><label><input type="checkbox" x-model="aiDraft.default_context.sector">板块知识</label></div></div>
+            <div class="option-group"><b>默认回答结构</b><div class="context-options"><label><input type="checkbox" x-model="aiDraft.answer_style.conclusion">结论</label><label><input type="checkbox" x-model="aiDraft.answer_style.evidence">证据</label><label><input type="checkbox" x-model="aiDraft.answer_style.counter_evidence">反证/风险</label><label><input type="checkbox" x-model="aiDraft.answer_style.discipline">交易纪律</label></div></div>
+            <div class="option-group"><b>回答与保存</b><div class="context-options"><label><input type="checkbox" x-model="aiDraft.ui_options.show_sources">显示工具来源</label><label><input type="checkbox" x-model="aiDraft.ui_options.allow_research_save">允许存入研究记录</label></div></div>
+            <footer><span x-text="aiSaveMessage"></span><button class="button primary" @click="saveAiConfig()">保存为全站当前配置</button></footer>
+          </article>
+          <article class="panel capability-table"><header class="panel-head"><div><h3>接入能力对比</h3><p>两种模式都能结合当前页面和 STJ 本地事实</p></div></header><div class="table-wrap"><table><thead><tr><th>能力</th><th>订阅 CLI</th><th>自带 API</th></tr></thead><tbody><tr><td>流式输出</td><td>✓</td><td>✓</td></tr><tr><td>页面/持仓/笔记上下文</td><td>服务端预装</td><td>服务端预装</td></tr><tr><td>按需调用结构化数据工具</td><td>—</td><td>✓ Function Calling</td></tr><tr><td>模型来源</td><td>本机已登录 CLI</td><td>11 个预设 + 自定义兼容端点</td></tr><tr><td>密钥要求</td><td>无需模型 API Key</td><td>浏览器本地保存 API Key</td></tr></tbody></table></div></article>
+          <article class="panel ai-tool-guide"><header class="panel-head"><div><h3>AI 数据工具是什么？</h3><p>API 模式下由模型按需调用的只读结构化查询，不是另一种 AI 配置。</p></div><span class="status-badge online">只读</span></header><p>可查询组合、标的上下文、行情、公司业务、估值、财报、新闻、研报和板块知识；不能执行任意 URL、SQL、Shell，也不能改持仓、笔记或板块。</p><div class="tool-chip-row"><span>组合</span><span>个股</span><span>行情</span><span>业务</span><span>估值</span><span>财报</span><span>新闻</span><span>研报</span><span>板块</span></div><small>CLI 模式不调用数据工具，而是在服务端预装同一套可信页面上下文。</small></article>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- 个股详情 -->
+  <div class="overlay" x-show="stockOpen" x-transition.opacity @click.self="closeStock()">
+    <aside class="stock-drawer" x-transition:enter="slide-enter" x-transition:enter-start="slide-start" x-transition:leave="slide-leave" x-transition:leave-end="slide-start">
+      <header class="drawer-head"><button class="icon-button" @click="closeStock()">←</button><div class="stock-cell"><span class="stock-logo" x-text="initials(stock?.asset||{ts_code:selectedCode})"></span><span><b x-text="stock?.asset?.name||selectedCode"></b><small x-text="selectedCode"></small></span></div><span class="market-chip" :class="stock?.asset?.market_group?.toLowerCase()" x-text="marketName(stock?.asset?.market_group)"></span><button class="button soft" @click="openAi('分析当前个股的核心逻辑、反证和风险')">✦ 问 AI</button></header>
+      <div class="drawer-scroll">
+        <div class="state loading" x-show="loading.stock">正在加载本地台账、业务、估值和行情…</div>
+        <template x-if="stock">
+          <div>
+            <div class="holding-strip"><div><span>持仓</span><b x-text="stock.holding_summary.quantity==null?'未持仓':`${number(stock.holding_summary.quantity,0)} 股`"></b></div><div><span>成本</span><b x-text="number(stock.holding_summary.avg_cost,2)"></b></div><div><span>现价</span><b x-text="number(stock.holding_summary.last,2)"></b></div><div><span>浮盈</span><b :class="pnlClass(stock.holding_summary.pnl)" x-text="`${signedMoney(stock.holding_summary.pnl,stock.holding_summary.currency)} · ${signedPercent(stock.holding_summary.pnl_rate)}`"></b></div></div>
+            <div class="stock-tabs"><template x-for="tab in stockTabs"><button :class="{'active':stockTab===tab.id}" @click="setStockTab(tab.id)" x-text="tab.label"></button></template></div>
+            <section class="stock-section" x-show="stockTab==='overview'">
+              <article class="business-card"><div><span class="eyebrow">公司业务</span><h2 x-text="stock.company_profile.business_summary?'业务与经营变量':'公司业务资料暂缺'"></h2><p x-text="stock.company_profile.business_summary||'当前来源没有返回公司业务说明；不会用模板文字冒充事实。'"></p><div class="tag-row"><span class="tag" x-show="stock.company_profile.sector" x-text="stock.company_profile.sector"></span><span class="tag" x-show="stock.company_profile.industry" x-text="stock.company_profile.industry"></span></div><footer><a :href="safeLink(stock.company_profile.source_url)" target="_blank" rel="noopener">来源：<span x-text="stock.company_profile.source"></span></a><time x-text="shortDate(stock.company_profile.as_of)"></time></footer></div><dl><template x-for="fact in stock.company_profile.facts"><div x-show="fact.value!=null"><dt x-text="fact.label"></dt><dd x-text="fact.value"></dd></div></template></dl></article>
+              <article class="panel section-gap"><header class="panel-head"><div><h3>估值与预期</h3><p>历史分位不可得时明确留空</p></div></header><div class="metric-grid"><template x-for="metric in valuationMetrics"><div><span x-text="metric.label"></span><b x-text="metricValue(stock.valuation[metric.key],metric.format)"></b></div></template></div></article>
+            </section>
+            <section class="stock-section kline-section" x-show="stockTab==='kline'"><iframe :src="chartUrl" title="STJ K线与交易记录" loading="lazy"></iframe></section>
+            <section class="stock-section" x-show="stockTab==='financials'"><div class="state loading" x-show="loading.financials">正在加载财报…</div><template x-if="financials"><div><div class="finance-toolbar"><div class="segmented"><button :class="{'active':financialPeriod==='annual'}" @click="setFinancialPeriod('annual')">年度</button><button :class="{'active':financialPeriod==='quarterly'}" @click="setFinancialPeriod('quarterly')">季度</button></div><span x-text="financials.capability.reason||financials.source"></span></div><div class="finance-chart" x-ref="financeChart"></div><div class="quality-grid"><template x-for="item in latestQualityMetrics()"><div><span x-text="item.label"></span><b x-text="item.value"></b><small x-text="item.note"></small></div></template></div></div></template></section>
+            <section class="stock-section" x-show="stockTab==='flow'"><div class="state loading" x-show="loading.flow">正在加载资金面…</div><template x-if="flow"><div><div class="capability" :class="{'unavailable':!flow.capability.available}"><b x-text="flow.capability.available?'A 股资金面':'该市场不提供同口径资金流'"></b><span x-text="flow.capability.reason||flow.source"></span></div><div class="two-columns" x-show="flow.capability.available"><article class="panel"><header class="panel-head"><h3>主力净流入</h3></header><div class="compact-table"><template x-for="row in flow.fund_flow?.slice(-10).reverse()"><div><time x-text="row.date"></time><b :class="pnlClass(row.main_net)" x-text="compactMoney(row.main_net)"></b></div></template></div></article><article class="panel"><header class="panel-head"><h3>融资融券</h3></header><div class="compact-table"><template x-for="row in flow.margin?.slice(0,10)"><div><time x-text="row.date"></time><b x-text="compactMoney(row.total_balance)"></b></div></template></div></article></div></div></template></section>
+            <section class="stock-section" x-show="stockTab==='options'"><div class="state loading" x-show="loading.options">正在加载期权链…</div><template x-if="options"><div><div class="capability" :class="{'unavailable':!options.capability.available}"><b x-text="options.capability.available?'最近到期期权链':'期权数据不可用'"></b><span x-text="options.capability.reason||options.source"></span></div><div class="two-columns" x-show="options.capability.available"><article class="panel"><header class="panel-head"><h3>Calls</h3></header><div class="compact-table"><template x-for="row in options.calls?.slice(0,12)"><div><span>行权 <b x-text="number(row.strike,2)"></b></span><span>OI <b x-text="number(row.open_interest,0)"></b></span></div></template></div></article><article class="panel"><header class="panel-head"><h3>Puts</h3></header><div class="compact-table"><template x-for="row in options.puts?.slice(0,12)"><div><span>行权 <b x-text="number(row.strike,2)"></b></span><span>OI <b x-text="number(row.open_interest,0)"></b></span></div></template></div></article></div></div></template></section>
+            <section class="stock-section" x-show="stockTab==='intel'"><div class="state loading" x-show="loading.stockIntel">正在加载新闻、研报与披露…</div><template x-if="stockIntel"><div class="intel-list"><template x-for="item in stockIntel.items"><a class="intel-item" :href="safeLink(item.source_url)" target="_blank" rel="noopener"><span class="tag" :class="item.kind" x-text="kindName(item.kind)"></span><h3 x-text="item.title"></h3><p x-text="item.summary||'打开原文查看完整内容'"></p><footer><span x-text="item.source_name"></span><time x-text="shortDateTime(item.published_at)"></time></footer></a></template><div class="empty" x-show="!stockIntel.items.length">暂无新闻、研报或披露</div></div></template></section>
+          </div>
+        </template>
+      </div>
+    </aside>
+  </div>
+
+  <!-- 全局 Ask AI -->
+  <div class="overlay ai-overlay" x-show="aiOpen" x-transition.opacity @click.self="closeAi()">
+    <aside class="ai-drawer">
+      <header class="drawer-head"><span class="ai-orb">✦</span><div><b>问 AI · 本页上下文</b><small x-text="activeAiName"></small></div><button class="icon-button" @click="newAiConversation()" title="新会话">＋</button><button class="icon-button" :class="{'active':aiQuickSettingsOpen}" @click="aiQuickSettingsOpen=!aiQuickSettingsOpen" title="本次设置">⚙</button><button class="icon-button" @click="closeAi()" title="关闭并停止生成">×</button></header>
+      <div class="ai-context"><span>已挂载</span><template x-for="chip in mountedContextChips"><em x-text="chip"></em></template></div>
+      <template x-if="aiConfig"><div class="ai-quick-settings" x-show="aiQuickSettingsOpen">
+        <header><b>上下文与回答</b><button @click="navigate('ai-settings');closeAi()">完整设置 →</button></header>
+        <div class="context-options"><label><input type="checkbox" x-model="aiConfig.default_context.portfolio" @change="persistAiPreferences()">持仓</label><label><input type="checkbox" x-model="aiConfig.default_context.watchlist" @change="persistAiPreferences()">关注</label><label><input type="checkbox" x-model="aiConfig.default_context.notes" @change="persistAiPreferences()">笔记</label><label><input type="checkbox" x-model="aiConfig.default_context.news" @change="persistAiPreferences()">新闻/研报</label><label><input type="checkbox" x-model="aiConfig.default_context.sector" @change="persistAiPreferences()">板块</label></div>
+        <div class="context-options"><label><input type="checkbox" x-model="aiConfig.ui_options.show_sources" @change="persistAiPreferences()">显示来源</label><label><input type="checkbox" x-model="aiConfig.ui_options.allow_research_save" @change="persistAiPreferences()">允许保存研究</label></div>
+      </div></template>
+      <div class="ai-config-warning" x-show="!aiConfigured"><b>尚未接入 AI</b><p>页面上下文已经准备好，接入本机订阅 CLI 或自带 API 后即可提问。</p><div class="context-preview"><template x-for="item in contextPreview"><span><small x-text="item.label"></small><b x-text="item.value"></b></span></template></div><button class="button primary" @click="navigate('ai-settings');closeAi()">前往设置</button></div>
+      <div class="ai-error-banner" x-show="aiError"><span><b>生成失败</b><small x-text="aiError"></small></span><button class="button" @click="retryAi()" :disabled="aiStreaming">重试</button><button @click="aiError=''">×</button></div>
+      <div class="ai-messages" x-ref="aiMessages" x-show="aiConfigured">
+        <template x-for="(message,index) in aiMessages" :key="message.id">
+          <div class="ai-message" :class="message.role">
+            <span class="mini-avatar" x-show="message.role==='assistant'">✦</span>
+            <div>
+              <div class="ai-message-meta" x-show="message.role==='assistant'&&message.runtimeName"><b x-text="message.runtimeName"></b><em x-text="message.runtimeMode"></em></div>
+              <div class="tool-trace" x-show="message.tools?.length"><template x-for="tool in message.tools"><span :class="{'failed':tool.error}"><b x-text="toolName(tool.name)"></b><small x-show="formatToolArgs(tool.args)" x-text="formatToolArgs(tool.args)"></small><em x-text="tool.status"></em></span></template></div>
+              <div class="ai-thinking" x-show="message.role==='assistant'&&message.streaming&&!message.content"><span class="thinking-orb"><i></i><i></i><i></i></span><span><b x-text="message.statusText||'正在处理…'"></b><small>请求已发送，可随时停止</small></span></div>
+              <p x-show="message.content" :class="{'streaming':message.streaming}" x-text="message.content"></p>
+              <div class="answer-sources" x-show="message.role==='assistant'&&message.sources?.length&&aiConfig?.ui_options?.show_sources!==false"><b>来源</b><template x-for="source in message.sources"><a :href="sourceUrl(source)" target="_blank" rel="noopener" x-text="sourceLabel(source)"></a></template></div>
+              <button class="save-research" x-show="message.role==='assistant'&&message.content&&!message.streaming&&aiConfig?.ui_options?.allow_research_save!==false" @click="saveAiMessage(index)" x-text="message.saved?'✓ 已存入研究记录':'存入研究记录'"></button>
+            </div>
+          </div>
+        </template>
+        <div class="ai-suggestions" x-show="aiMessages.length===1"><template x-for="prompt in currentAiSuggestions"><button @click="sendAi(prompt)" x-text="prompt"></button></template></div>
+      </div>
+      <form class="ai-compose" x-show="aiConfigured" @submit.prevent="sendAi()"><textarea x-model="aiInput" @keydown.enter="if (!$event.shiftKey) { $event.preventDefault(); sendAi() }" placeholder="就本页内容提问…"></textarea><footer><span x-text="aiStreaming?'正在生成，可随时停止':'Enter 发送 · Shift+Enter 换行'"></span><button type="button" class="button" x-show="aiStreaming" @click="stopAi()">停止</button><button class="send-button" :disabled="!aiInput.trim()||aiStreaming">↑</button></footer></form>
+    </aside>
+  </div>
+
+  <!-- 板块弹窗 -->
+  <div class="modal-overlay" x-show="sectorModal" @click.self="sectorModal=false"><form class="modal" @submit.prevent="createSector()"><header><h3>新建板块知识库</h3><button type="button" @click="sectorModal=false">×</button></header><label>板块名称<input x-model="sectorForms.create.name" required maxlength="80" placeholder="例如：AI 算力"></label><label>研究摘要<textarea x-model="sectorForms.create.summary" maxlength="4000" placeholder="想重点理解哪些上下游、关键变量或风险？"></textarea></label><label>初始标签<input x-model="sectorForms.create.tags" placeholder="GPU、光模块、数据中心"></label><footer><button type="button" class="button" @click="sectorModal=false">取消</button><button class="button primary">创建并进入</button></footer></form></div>
+  <div class="modal-overlay" x-show="sectorEditModal" @click.self="sectorEditModal=false"><form class="modal" @submit.prevent="updateSelectedSector()"><header><h3>编辑板块资料</h3><button type="button" @click="sectorEditModal=false">×</button></header><label>板块名称<input x-model="sectorForms.edit.name" required maxlength="80"></label><label>研究摘要<textarea x-model="sectorForms.edit.summary" maxlength="4000"></textarea></label><footer><button type="button" class="button" @click="sectorEditModal=false">取消</button><button class="button primary">保存</button></footer></form></div>
+  <div class="modal-overlay" x-show="sectorNodeModal" @click.self="sectorNodeModal=false"><form class="modal" @submit.prevent="addSectorNode()"><header><h3 x-text="editingNodeId?'编辑产业链节点':'添加产业链节点'"></h3><button type="button" @click="sectorNodeModal=false">×</button></header><label>环节<select x-model="sectorForms.node.stage"><option value="upstream">上游</option><option value="midstream">中游</option><option value="downstream">下游</option></select></label><label>节点名称<input x-model="sectorForms.node.name" required maxlength="100"></label><label>说明<textarea x-model="sectorForms.node.description"></textarea></label><label class="check"><input type="checkbox" x-model="sectorForms.node.bottleneck">标记为卡脖子环节</label><footer><button type="button" class="button" @click="sectorNodeModal=false">取消</button><button class="button primary" x-text="editingNodeId?'保存':'添加'"></button></footer></form></div>
+  <div class="modal-overlay" x-show="sectorKnowledgeModal" @click.self="sectorKnowledgeModal=false"><form class="modal" @submit.prevent="addSectorKnowledge()"><header><h3 x-text="editingKnowledgeId?'编辑核心知识':'添加核心知识'"></h3><button type="button" @click="sectorKnowledgeModal=false">×</button></header><label>类型<select x-model="sectorForms.knowledge.kind"><option value="core">核心知识</option><option value="driver">驱动因素</option><option value="risk">风险信号</option><option value="evidence">证据</option><option value="question">待验证问题</option></select></label><label>标题<input x-model="sectorForms.knowledge.title" required maxlength="200"></label><label>内容<textarea x-model="sectorForms.knowledge.content" required maxlength="20000"></textarea></label><label>来源 URL<input x-model="sectorForms.knowledge.source_url" type="url" placeholder="https://..."></label><label>资料日期<input x-model="sectorForms.knowledge.as_of" type="date"></label><footer><button type="button" class="button" @click="sectorKnowledgeModal=false">取消</button><button class="button primary" x-text="editingKnowledgeId?'保存':'添加'"></button></footer></form></div>
+
+  <div class="toast" :class="{'show':toast}" x-text="toast"></div>
+</body>
+</html>

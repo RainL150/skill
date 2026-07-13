@@ -8,12 +8,17 @@
 3. watchlist - 关注列表
 4. notes - 统一标的笔记
 5. watch_notes - 旧关注记录表（保留兼容，读取已迁移到 notes）
+6. sectors / sector_* - 板块知识、产业链与关联标的
+7. research_records - 用户确认保存的 AI 研究记录
 """
 
+import json
 import os
 import sqlite3
+import uuid
 from datetime import datetime
 from typing import Any, Optional
+from urllib.parse import urlparse
 
 
 IMPORT_NOTE_MARKERS = (
@@ -30,6 +35,10 @@ IMPORT_NOTE_MARKERS = (
 )
 
 NOTE_TYPES = ("trade_decision", "watch_observation", "holding_review")
+SECTOR_STATUSES = ("active", "archived")
+SECTOR_STAGES = ("upstream", "midstream", "downstream")
+KNOWLEDGE_KINDS = ("core", "driver", "risk", "evidence", "question")
+RESEARCH_SCOPES = ("page", "portfolio", "symbol", "sector")
 
 
 def _table_columns(conn: sqlite3.Connection, table: str) -> list[str]:
@@ -52,6 +61,41 @@ def normalize_note_type(note_type: str) -> str:
     return value
 
 
+def _normalize_enum(value: str, choices: tuple[str, ...], label: str) -> str:
+    normalized = (value or "").strip().lower()
+    if normalized not in choices:
+        raise ValueError(f"invalid {label}: {value}. expected one of {', '.join(choices)}")
+    return normalized
+
+
+def normalize_sector_status(value: str) -> str:
+    return _normalize_enum(value, SECTOR_STATUSES, "sector status")
+
+
+def normalize_sector_stage(value: str) -> str:
+    return _normalize_enum(value, SECTOR_STAGES, "sector stage")
+
+
+def normalize_knowledge_kind(value: str) -> str:
+    return _normalize_enum(value, KNOWLEDGE_KINDS, "knowledge kind")
+
+
+def normalize_research_scope(value: str) -> str:
+    return _normalize_enum(value, RESEARCH_SCOPES, "research scope")
+
+
+def normalize_source_url(value: Any) -> str:
+    clean = str(value or "").strip()
+    if not clean:
+        return ""
+    if len(clean) > 2000:
+        raise ValueError("source URL is too long")
+    parsed = urlparse(clean)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
+        raise ValueError("source URL must be an http(s) URL without credentials")
+    return clean
+
+
 def _clean_note(value: Any) -> str:
     text = str(value or "").strip()
     if not text:
@@ -71,6 +115,7 @@ def ensure_db(db_path: str) -> sqlite3.Connection:
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row  # 支持字典式访问
+    conn.execute("PRAGMA foreign_keys = ON")
 
     # 交易记录表
     conn.execute("""
@@ -179,6 +224,95 @@ def ensure_db(db_path: str) -> sqlite3.Connection:
         )
     """)
 
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS sectors (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            slug TEXT NOT NULL UNIQUE,
+            name TEXT NOT NULL,
+            summary TEXT DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived')),
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS sector_tags (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sector_id INTEGER NOT NULL REFERENCES sectors(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(sector_id, name)
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS sector_nodes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sector_id INTEGER NOT NULL REFERENCES sectors(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            stage TEXT NOT NULL CHECK (stage IN ('upstream', 'midstream', 'downstream')),
+            description TEXT DEFAULT '',
+            bottleneck INTEGER NOT NULL DEFAULT 0 CHECK (bottleneck IN (0, 1)),
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS sector_edges (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sector_id INTEGER NOT NULL REFERENCES sectors(id) ON DELETE CASCADE,
+            from_node_id INTEGER NOT NULL REFERENCES sector_nodes(id) ON DELETE CASCADE,
+            to_node_id INTEGER NOT NULL REFERENCES sector_nodes(id) ON DELETE CASCADE,
+            relation TEXT NOT NULL DEFAULT 'supplies',
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(sector_id, from_node_id, to_node_id, relation)
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS sector_symbols (
+            sector_id INTEGER NOT NULL REFERENCES sectors(id) ON DELETE CASCADE,
+            ts_code TEXT NOT NULL,
+            role TEXT DEFAULT '',
+            note TEXT DEFAULT '',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(sector_id, ts_code)
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS sector_knowledge (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sector_id INTEGER NOT NULL REFERENCES sectors(id) ON DELETE CASCADE,
+            kind TEXT NOT NULL CHECK (kind IN ('core', 'driver', 'risk', 'evidence', 'question')),
+            title TEXT NOT NULL,
+            content TEXT NOT NULL,
+            source_url TEXT DEFAULT '',
+            as_of TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS research_records (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            scope_type TEXT NOT NULL CHECK (scope_type IN ('page', 'portfolio', 'symbol', 'sector')),
+            ts_code TEXT,
+            sector_id INTEGER REFERENCES sectors(id) ON DELETE SET NULL,
+            question TEXT NOT NULL,
+            answer TEXT NOT NULL,
+            sources_json TEXT NOT NULL DEFAULT '[]',
+            context_summary_json TEXT NOT NULL DEFAULT '{}',
+            model_label TEXT DEFAULT '',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
     conn.commit()
 
     # 迁移：为旧表添加新列/移除旧列
@@ -205,6 +339,14 @@ def _create_indexes(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_notes_note_type ON notes(note_type)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_notes_timestamp ON notes(timestamp)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_notes_related_trade_id ON notes(related_trade_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_sectors_status ON sectors(status)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_sector_tags_sector ON sector_tags(sector_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_sector_nodes_sector_stage ON sector_nodes(sector_id, stage)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_sector_edges_sector ON sector_edges(sector_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_sector_symbols_ts_code ON sector_symbols(ts_code)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_sector_knowledge_sector_kind ON sector_knowledge(sector_id, kind)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_research_records_scope ON research_records(scope_type, created_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_research_records_ts_code ON research_records(ts_code)")
 
 
 def _migrate_tables(conn: sqlite3.Connection) -> None:
@@ -732,6 +874,443 @@ def get_position(conn: sqlite3.Connection, ts_code: str) -> Optional[dict[str, A
     cursor = conn.execute("SELECT * FROM positions WHERE ts_code = ?", (ts_code,))
     row = cursor.fetchone()
     return dict(row) if row else None
+
+
+def get_watchlist(conn: sqlite3.Connection, include_removed: bool = False) -> list[dict[str, Any]]:
+    """读取关注列表，默认排除已移除标的。"""
+    where = "" if include_removed else "WHERE status != 'removed'"
+    cursor = conn.execute(
+        f"""
+        SELECT *
+        FROM watchlist
+        {where}
+        ORDER BY priority DESC, updated_at DESC, id DESC
+        """
+    )
+    return [dict(row) for row in cursor.fetchall()]
+
+
+def get_watch(conn: sqlite3.Connection, ts_code: str) -> Optional[dict[str, Any]]:
+    row = conn.execute("SELECT * FROM watchlist WHERE ts_code = ?", (ts_code,)).fetchone()
+    return dict(row) if row else None
+
+
+def get_trades_for_symbol(conn: sqlite3.Connection, ts_code: str, limit: int = 100) -> list[dict[str, Any]]:
+    cursor = conn.execute(
+        """
+        SELECT *
+        FROM trades
+        WHERE ts_code = ?
+        ORDER BY timestamp DESC, id DESC
+        LIMIT ?
+        """,
+        (ts_code, max(1, min(int(limit), 1000))),
+    )
+    return [dict(row) for row in cursor.fetchall()]
+
+
+def _require_sector(conn: sqlite3.Connection, sector_id: int) -> dict[str, Any]:
+    row = conn.execute("SELECT * FROM sectors WHERE id = ?", (int(sector_id),)).fetchone()
+    if not row:
+        raise ValueError(f"sector not found: {sector_id}")
+    return dict(row)
+
+
+def create_sector(conn: sqlite3.Connection, name: str, summary: str = "", slug: str | None = None) -> dict[str, Any]:
+    clean_name = (name or "").strip()
+    if not clean_name or len(clean_name) > 80:
+        raise ValueError("sector name must be 1-80 characters")
+    clean_summary = (summary or "").strip()[:4000]
+    clean_slug = (slug or f"sector-{uuid.uuid4().hex[:10]}").strip().lower()
+    if not clean_slug or len(clean_slug) > 80 or not all(ch.isalnum() or ch in "-_" for ch in clean_slug):
+        raise ValueError("invalid sector slug")
+    now = datetime.now().isoformat()
+    cursor = conn.execute(
+        "INSERT INTO sectors (slug, name, summary, status, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, ?)",
+        (clean_slug, clean_name, clean_summary, now, now),
+    )
+    conn.commit()
+    return get_sector(conn, int(cursor.lastrowid))
+
+
+def get_sector(conn: sqlite3.Connection, sector_id: int) -> dict[str, Any]:
+    sector = _require_sector(conn, sector_id)
+    sector["tags"] = [dict(row) for row in conn.execute(
+        "SELECT * FROM sector_tags WHERE sector_id = ? ORDER BY name", (sector_id,)
+    )]
+    sector["nodes"] = [dict(row) for row in conn.execute(
+        "SELECT * FROM sector_nodes WHERE sector_id = ? ORDER BY sort_order, id", (sector_id,)
+    )]
+    sector["edges"] = [dict(row) for row in conn.execute(
+        "SELECT * FROM sector_edges WHERE sector_id = ? ORDER BY sort_order, id", (sector_id,)
+    )]
+    sector["symbols"] = [dict(row) for row in conn.execute(
+        "SELECT * FROM sector_symbols WHERE sector_id = ? ORDER BY ts_code", (sector_id,)
+    )]
+    sector["knowledge"] = [dict(row) for row in conn.execute(
+        "SELECT * FROM sector_knowledge WHERE sector_id = ? ORDER BY kind, updated_at DESC, id DESC", (sector_id,)
+    )]
+    return sector
+
+
+def list_sectors(conn: sqlite3.Connection, include_archived: bool = False) -> list[dict[str, Any]]:
+    where = "" if include_archived else "WHERE status = 'active'"
+    ids = [row["id"] for row in conn.execute(
+        f"SELECT id FROM sectors {where} ORDER BY updated_at DESC, id DESC"
+    )]
+    return [get_sector(conn, int(sector_id)) for sector_id in ids]
+
+
+def update_sector(conn: sqlite3.Connection, sector_id: int, **changes: Any) -> dict[str, Any]:
+    _require_sector(conn, sector_id)
+    allowed: dict[str, Any] = {}
+    if "name" in changes:
+        name = str(changes["name"] or "").strip()
+        if not name or len(name) > 80:
+            raise ValueError("sector name must be 1-80 characters")
+        allowed["name"] = name
+    if "summary" in changes:
+        allowed["summary"] = str(changes["summary"] or "").strip()[:4000]
+    if "status" in changes:
+        allowed["status"] = normalize_sector_status(str(changes["status"]))
+    if not allowed:
+        return get_sector(conn, sector_id)
+    allowed["updated_at"] = datetime.now().isoformat()
+    assignments = ", ".join(f"{column} = ?" for column in allowed)
+    conn.execute(
+        f"UPDATE sectors SET {assignments} WHERE id = ?",
+        (*allowed.values(), int(sector_id)),
+    )
+    conn.commit()
+    return get_sector(conn, sector_id)
+
+
+def archive_sector(conn: sqlite3.Connection, sector_id: int) -> dict[str, Any]:
+    return update_sector(conn, sector_id, status="archived")
+
+
+def add_sector_tag(conn: sqlite3.Connection, sector_id: int, name: str) -> dict[str, Any]:
+    _require_sector(conn, sector_id)
+    clean = (name or "").strip()
+    if not clean or len(clean) > 40:
+        raise ValueError("tag must be 1-40 characters")
+    conn.execute(
+        "INSERT OR IGNORE INTO sector_tags (sector_id, name, created_at) VALUES (?, ?, ?)",
+        (sector_id, clean, datetime.now().isoformat()),
+    )
+    conn.execute("UPDATE sectors SET updated_at = ? WHERE id = ?", (datetime.now().isoformat(), sector_id))
+    conn.commit()
+    row = conn.execute("SELECT * FROM sector_tags WHERE sector_id = ? AND name = ?", (sector_id, clean)).fetchone()
+    return dict(row)
+
+
+def delete_sector_tag(conn: sqlite3.Connection, sector_id: int, tag_id: int) -> bool:
+    cursor = conn.execute("DELETE FROM sector_tags WHERE id = ? AND sector_id = ?", (tag_id, sector_id))
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+def add_sector_node(
+    conn: sqlite3.Connection,
+    sector_id: int,
+    name: str,
+    stage: str,
+    description: str = "",
+    bottleneck: bool = False,
+    sort_order: int = 0,
+) -> dict[str, Any]:
+    _require_sector(conn, sector_id)
+    clean_name = (name or "").strip()
+    if not clean_name or len(clean_name) > 100:
+        raise ValueError("node name must be 1-100 characters")
+    cursor = conn.execute(
+        """
+        INSERT INTO sector_nodes (
+            sector_id, name, stage, description, bottleneck, sort_order, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            sector_id,
+            clean_name,
+            normalize_sector_stage(stage),
+            (description or "").strip()[:4000],
+            1 if bottleneck else 0,
+            int(sort_order),
+            datetime.now().isoformat(),
+            datetime.now().isoformat(),
+        ),
+    )
+    conn.commit()
+    return dict(conn.execute("SELECT * FROM sector_nodes WHERE id = ?", (cursor.lastrowid,)).fetchone())
+
+
+def update_sector_node(conn: sqlite3.Connection, sector_id: int, node_id: int, **changes: Any) -> dict[str, Any]:
+    row = conn.execute("SELECT * FROM sector_nodes WHERE id = ? AND sector_id = ?", (node_id, sector_id)).fetchone()
+    if not row:
+        raise ValueError(f"sector node not found: {node_id}")
+    values = dict(row)
+    if "name" in changes:
+        name = str(changes["name"] or "").strip()
+        if not name or len(name) > 100:
+            raise ValueError("node name must be 1-100 characters")
+        values["name"] = name
+    if "stage" in changes:
+        values["stage"] = normalize_sector_stage(str(changes["stage"]))
+    if "description" in changes:
+        values["description"] = str(changes["description"] or "").strip()[:4000]
+    if "bottleneck" in changes:
+        values["bottleneck"] = 1 if changes["bottleneck"] else 0
+    if "sort_order" in changes:
+        values["sort_order"] = int(changes["sort_order"])
+    conn.execute(
+        """
+        UPDATE sector_nodes
+        SET name = ?, stage = ?, description = ?, bottleneck = ?, sort_order = ?, updated_at = ?
+        WHERE id = ? AND sector_id = ?
+        """,
+        (
+            values["name"], values["stage"], values["description"], values["bottleneck"],
+            values["sort_order"], datetime.now().isoformat(), node_id, sector_id,
+        ),
+    )
+    conn.commit()
+    return dict(conn.execute("SELECT * FROM sector_nodes WHERE id = ?", (node_id,)).fetchone())
+
+
+def delete_sector_node(conn: sqlite3.Connection, sector_id: int, node_id: int) -> bool:
+    with conn:
+        conn.execute(
+            "DELETE FROM sector_edges WHERE sector_id = ? AND (from_node_id = ? OR to_node_id = ?)",
+            (sector_id, node_id, node_id),
+        )
+        cursor = conn.execute("DELETE FROM sector_nodes WHERE id = ? AND sector_id = ?", (node_id, sector_id))
+    return cursor.rowcount > 0
+
+
+def add_sector_edge(
+    conn: sqlite3.Connection,
+    sector_id: int,
+    from_node_id: int,
+    to_node_id: int,
+    relation: str = "supplies",
+    sort_order: int = 0,
+) -> dict[str, Any]:
+    _require_sector(conn, sector_id)
+    if from_node_id == to_node_id:
+        raise ValueError("sector edge cannot point to itself")
+    node_count = conn.execute(
+        "SELECT COUNT(*) AS n FROM sector_nodes WHERE sector_id = ? AND id IN (?, ?)",
+        (sector_id, from_node_id, to_node_id),
+    ).fetchone()["n"]
+    if node_count != 2:
+        raise ValueError("edge nodes must belong to the sector")
+    clean_relation = (relation or "supplies").strip()[:80]
+    cursor = conn.execute(
+        """
+        INSERT INTO sector_edges (sector_id, from_node_id, to_node_id, relation, sort_order, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (sector_id, from_node_id, to_node_id, clean_relation, int(sort_order), datetime.now().isoformat()),
+    )
+    conn.commit()
+    return dict(conn.execute("SELECT * FROM sector_edges WHERE id = ?", (cursor.lastrowid,)).fetchone())
+
+
+def delete_sector_edge(conn: sqlite3.Connection, sector_id: int, edge_id: int) -> bool:
+    cursor = conn.execute("DELETE FROM sector_edges WHERE id = ? AND sector_id = ?", (edge_id, sector_id))
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+def add_sector_symbol(conn: sqlite3.Connection, sector_id: int, ts_code: str, role: str = "", note: str = "") -> dict[str, Any]:
+    _require_sector(conn, sector_id)
+    parse_ts_code(ts_code)
+    conn.execute(
+        """
+        INSERT INTO sector_symbols (sector_id, ts_code, role, note, created_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(sector_id, ts_code) DO UPDATE SET role = excluded.role, note = excluded.note
+        """,
+        (sector_id, ts_code.upper(), (role or "").strip()[:100], (note or "").strip()[:2000], datetime.now().isoformat()),
+    )
+    conn.commit()
+    return dict(conn.execute(
+        "SELECT * FROM sector_symbols WHERE sector_id = ? AND ts_code = ?", (sector_id, ts_code.upper())
+    ).fetchone())
+
+
+def delete_sector_symbol(conn: sqlite3.Connection, sector_id: int, ts_code: str) -> bool:
+    cursor = conn.execute("DELETE FROM sector_symbols WHERE sector_id = ? AND ts_code = ?", (sector_id, ts_code.upper()))
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+def add_sector_knowledge(
+    conn: sqlite3.Connection,
+    sector_id: int,
+    kind: str,
+    title: str,
+    content: str,
+    source_url: str = "",
+    as_of: str | None = None,
+) -> dict[str, Any]:
+    _require_sector(conn, sector_id)
+    clean_title = (title or "").strip()
+    clean_content = (content or "").strip()
+    if not clean_title or len(clean_title) > 200:
+        raise ValueError("knowledge title must be 1-200 characters")
+    if not clean_content or len(clean_content) > 20_000:
+        raise ValueError("knowledge content must be 1-20000 characters")
+    now = datetime.now().isoformat()
+    cursor = conn.execute(
+        """
+        INSERT INTO sector_knowledge (
+            sector_id, kind, title, content, source_url, as_of, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            sector_id, normalize_knowledge_kind(kind), clean_title, clean_content,
+            normalize_source_url(source_url), as_of, now, now,
+        ),
+    )
+    conn.commit()
+    return dict(conn.execute("SELECT * FROM sector_knowledge WHERE id = ?", (cursor.lastrowid,)).fetchone())
+
+
+def update_sector_knowledge(conn: sqlite3.Connection, sector_id: int, knowledge_id: int, **changes: Any) -> dict[str, Any]:
+    row = conn.execute(
+        "SELECT * FROM sector_knowledge WHERE id = ? AND sector_id = ?", (knowledge_id, sector_id)
+    ).fetchone()
+    if not row:
+        raise ValueError(f"sector knowledge not found: {knowledge_id}")
+    values = dict(row)
+    if "kind" in changes:
+        values["kind"] = normalize_knowledge_kind(str(changes["kind"]))
+    if "title" in changes:
+        values["title"] = str(changes["title"] or "").strip()[:200]
+    if "content" in changes:
+        values["content"] = str(changes["content"] or "").strip()[:20_000]
+    if not values["title"] or not values["content"]:
+        raise ValueError("knowledge title and content are required")
+    if "source_url" in changes:
+        values["source_url"] = normalize_source_url(changes["source_url"])
+    if "as_of" in changes:
+        values["as_of"] = changes["as_of"]
+    conn.execute(
+        """
+        UPDATE sector_knowledge
+        SET kind = ?, title = ?, content = ?, source_url = ?, as_of = ?, updated_at = ?
+        WHERE id = ? AND sector_id = ?
+        """,
+        (
+            values["kind"], values["title"], values["content"], values["source_url"],
+            values["as_of"], datetime.now().isoformat(), knowledge_id, sector_id,
+        ),
+    )
+    conn.commit()
+    return dict(conn.execute("SELECT * FROM sector_knowledge WHERE id = ?", (knowledge_id,)).fetchone())
+
+
+def delete_sector_knowledge(conn: sqlite3.Connection, sector_id: int, knowledge_id: int) -> bool:
+    cursor = conn.execute(
+        "DELETE FROM sector_knowledge WHERE id = ? AND sector_id = ?", (knowledge_id, sector_id)
+    )
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+def add_research_record(
+    conn: sqlite3.Connection,
+    *,
+    scope_type: str,
+    question: str,
+    answer: str,
+    ts_code: str | None = None,
+    sector_id: int | None = None,
+    sources: list[dict[str, Any]] | None = None,
+    context_summary: dict[str, Any] | None = None,
+    model_label: str = "",
+) -> dict[str, Any]:
+    scope = normalize_research_scope(scope_type)
+    clean_question = (question or "").strip()
+    clean_answer = (answer or "").strip()
+    if not clean_question or not clean_answer:
+        raise ValueError("question and answer are required")
+    if ts_code:
+        parse_ts_code(ts_code)
+        ts_code = ts_code.upper()
+    if sector_id is not None:
+        _require_sector(conn, sector_id)
+    cursor = conn.execute(
+        """
+        INSERT INTO research_records (
+            scope_type, ts_code, sector_id, question, answer, sources_json,
+            context_summary_json, model_label, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            scope, ts_code, sector_id, clean_question[:20_000], clean_answer[:100_000],
+            json.dumps(sources or [], ensure_ascii=False),
+            json.dumps(context_summary or {}, ensure_ascii=False),
+            (model_label or "").strip()[:200], datetime.now().isoformat(),
+        ),
+    )
+    conn.commit()
+    return get_research_record(conn, int(cursor.lastrowid))
+
+
+def get_research_record(conn: sqlite3.Connection, record_id: int) -> dict[str, Any]:
+    row = conn.execute("SELECT * FROM research_records WHERE id = ?", (record_id,)).fetchone()
+    if not row:
+        raise ValueError(f"research record not found: {record_id}")
+    item = dict(row)
+    for source, target in (("sources_json", "sources"), ("context_summary_json", "context_summary")):
+        try:
+            item[target] = json.loads(item.pop(source))
+        except (TypeError, json.JSONDecodeError):
+            item[target] = [] if target == "sources" else {}
+    return item
+
+
+def list_research_records(
+    conn: sqlite3.Connection,
+    *,
+    scope_type: str | None = None,
+    ts_code: str | None = None,
+    sector_id: int | None = None,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    filters: list[str] = []
+    params: list[Any] = []
+    if scope_type:
+        filters.append("scope_type = ?")
+        params.append(normalize_research_scope(scope_type))
+    if ts_code:
+        filters.append("ts_code = ?")
+        params.append(ts_code.upper())
+    if sector_id is not None:
+        filters.append("sector_id = ?")
+        params.append(int(sector_id))
+    where = f"WHERE {' AND '.join(filters)}" if filters else ""
+    params.append(max(1, min(int(limit), 200)))
+    ids = [row["id"] for row in conn.execute(
+        f"SELECT id FROM research_records {where} ORDER BY created_at DESC, id DESC LIMIT ?", params
+    )]
+    return [get_research_record(conn, int(record_id)) for record_id in ids]
+
+
+def delete_research_record(conn: sqlite3.Connection, record_id: int) -> bool:
+    """删除单条用户保存的 AI 研究记录。"""
+    cursor = conn.execute("DELETE FROM research_records WHERE id = ?", (int(record_id),))
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+def clear_research_records(conn: sqlite3.Connection) -> int:
+    """清空用户保存的 AI 研究记录并返回删除数量。"""
+    cursor = conn.execute("DELETE FROM research_records")
+    conn.commit()
+    return max(0, int(cursor.rowcount))
 
 
 def add_note(

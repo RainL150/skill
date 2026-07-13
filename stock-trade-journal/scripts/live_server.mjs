@@ -4,6 +4,8 @@ import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
+import { createApiRouter } from "./live/api_routes.mjs";
+import { isLoopbackHost, sendText } from "./live/http_helpers.mjs";
 
 const home = os.homedir();
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
@@ -13,10 +15,34 @@ const chartDir = path.join(workspace, "results", "trade-journal", "charts");
 const liveDataDir = path.join(chartDir, "live-data");
 const renderChartScript = process.env.STJ_RENDER_CHART ||
   path.join(scriptDir, "render_chart.py");
+const dashboardDataScript = process.env.STJ_DASHBOARD_DATA || path.join(scriptDir, "dashboard_data.py");
+const dashboardChatScript = process.env.STJ_DASHBOARD_CHAT || path.join(scriptDir, "dashboard_chat.py");
+const packageDir = path.dirname(scriptDir);
+const assetsDir = path.join(packageDir, "assets");
+const dashboardTemplate = path.join(packageDir, "templates", "dashboard.html");
 const port = Number(process.env.PORT || 8787);
 const host = process.env.HOST || "127.0.0.1";
+const dashboardV2 = process.env.STJ_DASHBOARD_V2 !== "0";
+const apiKey = String(process.env.STJ_API_KEY || "").trim();
+const python = process.env.STJ_PYTHON || "python3";
+const dataTimeoutMs = Number(process.env.STJ_DATA_TIMEOUT_MS || 45000);
 const periods = new Set(["1w", "1mo", "3mo", "6mo", "1y", "3y", "trade"]);
 const quoteTimeoutMs = Number(process.env.STJ_QUOTE_TIMEOUT_MS || 1800);
+
+if (!isLoopbackHost(host) && !apiKey) {
+  throw new Error("HOST 非 loopback 时必须设置 STJ_API_KEY");
+}
+
+const apiRouter = createApiRouter({
+  workspace,
+  host,
+  port,
+  apiKey,
+  python,
+  dataTimeoutMs,
+  dashboardDataScript,
+  dashboardChatScript,
+});
 
 function run(command, args, options = {}) {
   return new Promise((resolve, reject) => {
@@ -459,13 +485,47 @@ async function serveStaticChart(req, res, pathname) {
   res.end(await readFile(file));
 }
 
+async function serveDashboardAsset(res, pathname) {
+  const requested = decodeURIComponent(pathname.replace("/assets/", ""));
+  const allowed = new Set([
+    "alpine.min.js",
+    "dashboard.css",
+    "dashboard.js",
+    "echarts.min.js",
+  ]);
+  if (!allowed.has(requested)) {
+    sendText(res, "not found", 404);
+    return;
+  }
+  const file = path.join(assetsDir, requested);
+  await stat(file);
+  const contentTypes = {
+    ".js": "text/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+  };
+  res.setHeader("content-type", contentTypes[path.extname(file)] || "application/octet-stream");
+  res.setHeader("cache-control", requested.includes("min.") ? "public, max-age=86400" : "no-cache");
+  res.end(await readFile(file));
+}
+
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url || "/", `http://${req.headers.host || `${host}:${port}`}`);
+    if (await apiRouter.handle(req, res, url)) return;
     if (url.pathname === "/") {
+      if (dashboardV2) {
+        res.setHeader("content-type", "text/html; charset=utf-8");
+        res.setHeader("cache-control", "no-cache");
+        res.end(await readFile(dashboardTemplate));
+        return;
+      }
       const data = await loadData();
       res.setHeader("content-type", "text/html; charset=utf-8");
       res.end(renderIndex(data));
+      return;
+    }
+    if (url.pathname.startsWith("/assets/")) {
+      await serveDashboardAsset(res, url.pathname);
       return;
     }
     if (url.pathname === "/api/data") {
@@ -494,9 +554,8 @@ const server = http.createServer(async (req, res) => {
     res.statusCode = 404;
     res.end("not found");
   } catch (error) {
-    res.statusCode = 500;
-    res.setHeader("content-type", "text/plain; charset=utf-8");
-    res.end(String(error?.stack || error));
+    const debug = process.env.STJ_DEBUG === "1";
+    sendText(res, debug ? String(error?.stack || error) : "服务内部错误", 500);
   }
 });
 
@@ -504,4 +563,5 @@ server.listen(port, host, () => {
   console.log(`STJ live server: http://${host}:${port}`);
   console.log(`DB: ${dbPath}`);
   console.log(`render_chart.py: ${renderChartScript}`);
+  console.log(`Dashboard: ${dashboardV2 ? "v2" : "legacy"}`);
 });

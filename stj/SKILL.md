@@ -1,6 +1,6 @@
 ---
 name: stj
-description: stock-trade-journal 快捷入口。交易记录、持仓管理、关注列表、一键分析。
+description: stock-trade-journal 快捷入口。交易记录、持仓/关注、跨市场投研工作台与全局问 AI。
 ---
 
 # /stj - 交易日志快捷命令
@@ -33,7 +33,7 @@ Claude 全局安装时，主 skill 脚本目录为：
 | `/stj 证据包` | 生成持仓 + 关注 + 行情 + 合并暴露证据包 |
 | `/stj 行情 NVDA.US 0700.HK` | 用统一口径查询行情、时间戳和汇率 |
 | `/stj 分析 RDDT.US` | 直接分析单只持仓/关注标的 |
-| `/stj 在线持仓` | 启动实时持仓、关注和任意标的图表网页 |
+| `/stj 在线持仓` | 启动持仓、关注、复盘、板块与全局问 AI 投研工作台 |
 | `/stj 同步IBKR` | 同步盈透数据 |
 | `/stj 补笔记` | 扫描导入交易并补充交易画像笔记 |
 
@@ -298,8 +298,8 @@ python3 ~/.claude/skills/stock-trade-journal/scripts/mcp_server.py
 
 该 MCP server 暴露 `stj_query_positions`、`stj_query_notes`、`stj_quote`、`stj_evidence_pack`，只返回客观本地数据和行情证据，不直接给买卖建议。
 
-### 在线持仓页
-当用户要求“在线启动 node”“打开持仓网页”“实时持仓和关注页”“看某个代码的图”等类似请求时，统一启动本地服务，图表查看也在该网页内完成：
+### 在线投研工作台
+当用户要求“在线启动 node”“打开持仓网页”“投研工作台”“问 AI 设置”“看某个代码的图”等类似请求时，先读取主 skill 的 `references/dashboard-guide.md`，再启动本地服务：
 
 ```bash
 cd ~/.claude/skills/stock-trade-journal/scripts && PORT=8787 node live_server.mjs
@@ -311,7 +311,7 @@ cd ~/.claude/skills/stock-trade-journal/scripts && PORT=8787 node live_server.mj
 http://127.0.0.1:8787/
 ```
 
-该服务每次刷新页面实时读取 SQLite，并用东方财富/Yahoo 获取行情；点击持仓/关注标的图表或在页面输入任意代码时，会实时生成带交易/关注标注的 HTML。任意代码可以不在持仓或关注列表中，例如 `META.US`、`601021.SH`、`0700.HK`。可用环境变量：`STJ_WORKSPACE`、`STJ_DB`、`STJ_RENDER_CHART`、`STJ_QUOTE_TIMEOUT_MS`、`HOST`、`PORT`。
+页面包含左侧菜单、持仓、关注、个股详情、原 STJ K 线记录、每日复盘、资讯雷达、板块知识、研究记录和全局问 AI。AI 完整支持订阅 CLI 与 11 个 API 预设/自定义端点；复盘与资讯可页内生成，API 模式的数据工具只读。旧 `/api/data`、`/chart`、`/charts/*` 仍兼容，`STJ_DASHBOARD_V2=0` 可恢复旧首页。
 
 ### 同步 IBKR
 ```bash

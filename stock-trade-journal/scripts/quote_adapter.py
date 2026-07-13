@@ -180,7 +180,8 @@ def fetch_fx_rates(currencies: set[str]) -> dict[str, dict[str, Any]]:
     return result
 
 
-def quote_many(ts_codes: list[str]) -> dict[str, Any]:
+def fetch_quotes_many(ts_codes: list[str]) -> dict[str, dict[str, Any]]:
+    """Fetch independent Yahoo quotes concurrently without adding FX data."""
     quotes: dict[str, dict[str, Any]] = {}
     # Yahoo occasionally drops SSL handshakes under higher parallelism. Four
     # workers keeps portfolio snapshots fast without making failures common.
@@ -198,6 +199,11 @@ def quote_many(ts_codes: list[str]) -> dict[str, Any]:
                     "error": str(exc),
                     "source": "Yahoo Finance chart API",
                 }
+    return quotes
+
+
+def quote_many(ts_codes: list[str]) -> dict[str, Any]:
+    quotes = fetch_quotes_many(ts_codes)
     currencies = {
         str(item.get("currency") or "").upper()
         for item in quotes.values()

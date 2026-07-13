@@ -1,0 +1,43 @@
+{
+  "id": "live-dashboard-upgrade",
+  "name": "live-dashboard-upgrade",
+  "title": "STJ 跨市场投资数据看板与全局问 AI",
+  "description": "在 stock-trade-journal 内接入 A/港/美结构化数据、STJ 原版 K 线记录、资讯复盘、板块知识与 Vibe 多供应商 AI，保持本地优先、零构建和旧路由兼容。",
+  "status": "in_progress",
+  "dev_type": "feature",
+  "scope": "stock-trade-journal",
+  "package": null,
+  "priority": "P1",
+  "creator": "yuyin.lin",
+  "assignee": "yuyin.lin",
+  "createdAt": "2026-07-10",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "stock-trade-journal/scripts/live_server.mjs",
+    "stock-trade-journal/scripts/db_schema.py",
+    "stock-trade-journal/scripts/quote_adapter.py",
+    "stock-trade-journal/scripts/evidence_pack.py",
+    "stock-trade-journal/scripts/render_chart.py",
+    "stock-trade-journal/templates/",
+    "stock-trade-journal/assets/",
+    "stock-trade-journal/requirements.txt"
+  ],
+  "notes": "Planning complete only; implementation must wait for user review and task.py start. Codex inline mode skips JSONL context curation.",
+  "meta": {
+    "architecture": "node-ssr-vendored-alpine",
+    "markets": [
+      "A",
+      "HK",
+      "US"
+    ],
+    "planning_version": 1
+  }
+}
